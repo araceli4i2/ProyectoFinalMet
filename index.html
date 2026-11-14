@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIMTELE-RISK · Modelación y análisis numérico de cabinas</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <b>▲ SIMTELE-RISK</b>
+  <a href="#resumen">Resumen</a><a href="#arquitectura">Arquitectura</a><a href="#marco">Modelos</a>
+  <a href="#m1">M1 Detención</a><a href="#m2">M2 Deterioro</a><a href="#m3">M3 Viento</a><a href="#m4">M4 Sensores</a>
+  <a href="#metodos">Métodos</a><a href="#errores">Errores</a><a href="#escenarios">Escenarios</a>
+  <a href="#analisis">Análisis</a><a href="#conclusiones">Conclusiones</a>
+</div></nav>
+
+<!-- ================= HERO ================= -->
+<header class="hero"><div class="wrap">
+  <span class="tag">Modelado · Sistemas lineales SPD · EDO · Teoría de errores</span>
+  <h1>SIMTELE-RISK: <span>análisis dinámico</span> de seguridad en transporte por cable</h1>
+  <p class="lead">Cuatro casos de estudio modelados matemáticamente: detención de emergencia, deterioro mecánico,
+  oscilaciones por viento y reconstrucción de sensores. Cada uno incluye sus fórmulas, sus métodos numéricos,
+  la entrada de parámetros y los gráficos. Todos los datos son sintéticos y de uso educativo.</p>
+  <div class="scen-bar">
+    <label>Escenario activo</label>
+    <select id="scen" data-live>
+      <option value="N">Normal</option>
+      <option value="E">Estrés</option>
+      <option value="M">Mal condicionado</option>
+    </select>
+    <a class="btn primary" href="#m1">Explorar módulos</a>
+    <a class="btn ghost" href="#analisis">Ir al análisis</a>
+  </div>
+</div></header>
+<div class="wrap"><div class="kpis" id="kpis"></div></div>
+
+<!-- ================= 01 RESUMEN ================= -->
+<section class="light" id="resumen" style="padding-top:60px"><div class="wrap">
+  <div class="kicker">01 · Resumen ejecutivo</div>
+  <h2>Objetivos y <em>alcance</em></h2>
+  <p class="sub">La plataforma formula los modelos matemáticos de los cuatro casos de estudio, resuelve los sistemas
+  lineales asociados, evalúa su convergencia y sensibilidad, y reporta los errores con una teoría de errores transversal.</p>
+  <div class="grid g3">
+    <div class="card accent"><h3>Objetivo general</h3><p>Modelar la seguridad dinámica de una cabina de transporte por cable
+    y evaluar la exactitud y el condicionamiento de los métodos numéricos empleados.</p></div>
+    <div class="card accent"><h3>Objetivos específicos</h3><ul>
+      <li>Formular y resolver los modelos de frenado, deterioro, oscilación y calibración.</li>
+      <li>Calcular errores absolutos, relativos, residuales y el número de condición κ₂.</li>
+      <li>Comparar LU, Jacobi, Gauss-Seidel y Gradiente Conjugado en tres escenarios.</li></ul></div>
+    <div class="card accent"><h3>Naturaleza de los datos</h3><p>Parámetros sintéticos e hipotéticos, inspirados en sistemas urbanos
+    de transporte por cable (como Mi Teleférico en La Paz). No describen fallas ni datos operativos reales.</p></div>
+  </div>
+  <div class="card mt" style="border-left:5px solid #111"><h3>Pregunta central</h3>
+  <p>¿Cuándo una cabina cumple la distancia de seguridad al frenar, cuándo se alcanza el umbral de inspección, cuándo la
+  oscilación supera el límite de alerta y qué tan fiables son las calibraciones de sensores frente al ruido y al
+  mal condicionamiento?</p></div>
+  <div class="card mt"><h3>Módulos del sistema</h3><div class="tw"><table>
+    <thead><tr><th>Módulo</th><th>Fenómeno</th><th>Modelo matemático</th><th>Sistema lineal / método</th></tr></thead>
+    <tbody>
+      <tr><td>1 · Detención</td><td>Frenado con latencia</td><td>D_total = v₀·t_r + d_frenado</td><td>4×4 SPD (presiones hidráulicas)</td></tr>
+      <tr><td>2 · Deterioro</td><td>Cruce de umbral de inspección</td><td>D(t) = D₀ + α·t + β·t²</td><td>4×4 SPD de calibración</td></tr>
+      <tr><td>3 · Oscilaciones</td><td>Respuesta a viento senoidal</td><td>m·x'' + c·x' + k·x = F₀·sen(Ω·t)</td><td>3×3 normal escalado</td></tr>
+      <tr><td>4 · Sensores</td><td>Calibración e interpolación</td><td>(VᵀV)·c = Vᵀ·y; Lagrange; splines</td><td>n×n SPD (Vandermonde)</td></tr>
+    </tbody></table></div></div>
+</div></section>
+
+<!-- ================= 02 ARQUITECTURA ================= -->
+<section class="dark2" id="arquitectura"><div class="wrap">
+  <div class="kicker">02 · Arquitectura de datos</div>
+  <h2>Modelo <em>entidad-relación</em> y contratos JSON</h2>
+  <p class="sub">Seis tablas garantizan la persistencia completa de cada simulación y su relanzamiento exacto.</p>
+  <div class="grid g3">
+    <div class="card"><h3>caso_estudio</h3><p>id, nombre, módulo, descripción.</p></div>
+    <div class="card"><h3>escenario</h3><p>id, caso_id, nombre (Normal / Estrés / Mal condicionado), parámetros.</p></div>
+    <div class="card"><h3>simulacion</h3><p>id, escenario_id, fecha, parámetros JSON, versión.</p></div>
+    <div class="card"><h3>ejecucion_metodo</h3><p>id, simulación_id, método, tolerancia, iteraciones, estado.</p></div>
+    <div class="card"><h3>iteracion_resultado</h3><p>ejecución_id, k, residual, error, valor aproximado.</p></div>
+    <div class="card"><h3>resultado_resumen</h3><p>simulación_id, κ₂, error absoluto, error relativo, veredicto.</p></div>
+  </div>
+  <div class="card mt"><h3>Contrato JSON de simulación</h3>
+<pre>{
+  "contrato": "simtele-risk/simulacion/v1",
+  "escenario": "N",
+  "parametros": { "m1": { "v0": 5, "a0": 1.25, "...": "..." }, "m2": {}, "m3": {}, "m4": {}, "mi": {} },
+  "resultados": { "modulo1": { "t_det": 4 }, "modulo2": { "t_star": 8.5078 } },
+  "solvers": [ { "metodo": "Jacobi", "iteraciones": 19, "estado": "CONVERGIÓ" } ]
+}</pre>
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn primary" id="btnExp">⬇ Exportar simulación (JSON)</button>
+      <label class="btn ghost" style="cursor:pointer">⬆ Importar JSON<input type="file" id="fileIn" accept=".json" style="display:none"></label>
+    </div>
+  </div>
+</div></section>
+
+<!-- ================= 03 MARCO MATEMÁTICO ================= -->
+<section class="light2" id="marco"><div class="wrap">
+  <div class="kicker">03 · Marco matemático</div>
+  <h2>Ecuaciones <em>de referencia</em></h2>
+  <p class="sub">Resumen de los modelos y de las relaciones que se usan en los cálculos de cada módulo.</p>
+  <div class="grid g2">
+    <div class="card"><h3>Módulo 1 · Frenado</h3>
+      <div class="eq sm">dx/dt = v ,&nbsp; dv/dt = −[ a(t) + c·v ]</div>
+      <div class="eq sm">Constante: t_det = v₀ / a₀ ,&nbsp; d = v₀² / (2·a₀)</div>
+      <div class="eq sm">Hidráulico: v(t) = v₀ − a_max·[ t + (e^(−k·t) − 1)/k ]</div>
+      <p>Latencia: t_r = t_sensor + t_red + t_PLC + t_actuador. Cada segundo de latencia suma v₀ metros de recorrido.</p></div>
+    <div class="card"><h3>Módulo 2 · Deterioro</h3>
+      <div class="eq sm">D(t) = D₀ + α·t + β·t² = D_u</div>
+      <div class="eq sm">t* = 2(D_u − D₀) / ( α + √(α² + 4β(D_u − D₀)) )</div>
+      <div class="eq sm">dt*/dD_u = 1 / (α + 2β·t*)</div>
+      <p>La forma estable evita la cancelación catastrófica de la fórmula directa cuando β es pequeño.</p></div>
+    <div class="card"><h3>Módulo 3 · Oscilaciones</h3>
+      <div class="eq sm">ω = √(k/m) ,&nbsp; ζ = c/(2mω) ,&nbsp; ω_d = ω√(1−ζ²)</div>
+      <div class="eq sm">X(Ω) = F₀ / √((k − mΩ²)² + (cΩ)²)</div>
+      <div class="eq sm">(F₀/X)² = k² + (c² − 2km)Ω² + m²Ω⁴</div>
+      <p>La última forma es lineal en a = [k², c²−2km, m²], lo que permite calibrar m, k y c por mínimos cuadrados.</p></div>
+    <div class="card"><h3>Módulo 4 · Sensores</h3>
+      <div class="eq sm">p(r) = c₀ + c₁r + … + c_d·r^d</div>
+      <div class="eq sm">(VᵀV)·c = Vᵀ·y ,&nbsp; V_ij = r_i^j</div>
+      <div class="eq sm">|E(x)| ≤ M/(n!) · |∏(x − x_i)|</div>
+      <p>Interpolación de Lagrange, Newton por diferencias divididas y spline cúbico natural.</p></div>
+  </div>
+  <div class="card mt"><h3>Hipótesis de trabajo</h3><ol>
+    <li>El modelo de frenado es unidimensional y no incluye balanceo ni elasticidad del cable.</li>
+    <li>El indicador D(t) es adimensional e ilustrativo; β ≥ 0 modela un deterioro creciente.</li>
+    <li>El viento es armónico puro; el caso resonante es el escenario de diseño más desfavorable.</li>
+    <li>El ruido de medición es aditivo, de media cero y generado con semilla fija (reproducible).</li>
+  </ol></div>
+</div></section>
+
+<!-- ================= 04 MÓDULO 1 ================= -->
+<section class="dark" id="m1"><div class="wrap">
+  <div class="kicker">04 · Módulo 1 · Detención de emergencia</div>
+  <h2>Frenado con <em>latencia de reacción</em></h2>
+  <p class="sub">La orden de parada se convierte en frenado efectivo tras la latencia del sistema. La cabina conserva
+  v₀ durante t_r y luego desacelera hasta el reposo. Se verifica que D_total ≤ D_seg.</p>
+  <div class="grid g2">
+    <div class="card accent"><h3>Formulación</h3>
+      <div class="eq sm">d_reacción = v₀ · t_r</div>
+      <div class="eq sm">Constante: d_frenado = v₀² / (2·a₀)</div>
+      <div class="eq sm">Hidráulico: v(t) = v₀ − a_max·[ t + (e^(−k·t) − 1)/k ]</div>
+      <div class="eq sm">Tangencial: v(t) = v₀·(1 − t/T)²  (raíz doble en T)</div>
+      <div class="eq sm">D_total = v₀·t_r + d_frenado ≤ D_seg</div>
+      <p>Las tres variantes se integran con RK2 (Heun) y RK4. Con c = 0 se comparan con la solución analítica.</p></div>
+    <div class="card"><h3>Entrada de parámetros (SI)</h3>
+      <div class="ctrl" id="fm1" data-live></div>
+      <div style="margin-top:14px"><button class="btn ghost" onclick="applyPreset('m1')">Restaurar escenario</button></div>
+      <p class="note">La latencia t_r se calcula sumando sus cuatro componentes.</p></div>
+  </div>
+  <div class="kpis-in" id="k1"></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Velocidad v(t) durante el frenado</h3><div class="chartbox"><canvas id="c1"></canvas></div></div>
+    <div class="card"><h3>Distancia total x(t) frente a D_seg</h3><div class="chartbox"><canvas id="c2"></canvas></div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Presupuesto de latencia</h3><div class="tw" id="lat1"></div></div>
+    <div class="card"><h3>Resultados analíticos y numéricos</h3><div class="tw" id="t1"></div><div id="s1"></div></div>
+  </div>
+</div></section>
+
+<!-- ================= 05 MÓDULO 2 ================= -->
+<section class="light" id="m2"><div class="wrap">
+  <div class="kicker">05 · Módulo 2 · Deterioro mecánico</div>
+  <h2>Cruce del <em>umbral de inspección</em></h2>
+  <p class="sub">El indicador D(t) crece con un término lineal y otro cuadrático. El instante t* en que alcanza el
+  umbral D_u define cuándo debe realizarse la inspección preventiva.</p>
+  <div class="grid g2">
+    <div class="card accent"><h3>Formulación</h3>
+      <div class="eq sm">D(t) = D₀ + α·t + β·t²</div>
+      <div class="eq sm">f(t) = D(t) − D_u = 0 ,&nbsp; raíz positiva t* ≥ 0</div>
+      <div class="eq sm">t* = 2(D_u − D₀) / ( α + √(α² + 4β(D_u − D₀)) )</div>
+      <div class="eq sm">dt*/dD_u = 1/(α + 2β·t*) ,&nbsp; κ_rel = (D_u/t*)·dt*/dD_u</div></div>
+    <div class="card"><h3>Entrada de parámetros</h3>
+      <div class="ctrl" id="fm2" data-live></div>
+      <div style="margin-top:14px"><button class="btn ghost" onclick="applyPreset('m2')">Restaurar escenario</button></div></div>
+  </div>
+  <div class="kpis-in" id="k2"></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Indicador D(t) y umbral</h3><div class="chartbox"><canvas id="c4"></canvas></div></div>
+    <div class="card"><h3>Sensibilidad de t* frente al umbral</h3><div class="chartbox"><canvas id="c5"></canvas></div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Raíces y métodos de búsqueda</h3><div class="tw" id="t2"></div></div>
+    <div class="card"><h3>Interpretación</h3><div id="s2"></div></div>
+  </div>
+</div></section>
+
+<!-- ================= 06 MÓDULO 3 ================= -->
+<section class="dark2" id="m3"><div class="wrap">
+  <div class="kicker">06 · Módulo 3 · Oscilaciones por viento</div>
+  <h2>Respuesta lateral de la <em>cabina</em></h2>
+  <p class="sub">Un sistema masa-resorte-amortiguador de un grado de libertad responde a una fuerza senoidal. La amplitud
+  máxima se compara con el umbral de alerta A_lim, y la calibración recupera m, k y c a partir de mediciones.</p>
+  <div class="grid g2">
+    <div class="card accent"><h3>Formulación</h3>
+      <div class="eq sm">m·x'' + c·x' + k·x = F₀·sen(Ω·t)</div>
+      <div class="eq sm">X(Ω) = F₀ / √((k − mΩ²)² + (cΩ)²) ,&nbsp; tan φ = cΩ/(k − mΩ²)</div>
+      <div class="eq sm">Resonancia: X_res = F₀ / (c·ω)</div>
+      <div class="eq sm">(F₀/X)² = k² + (c² − 2km)Ω² + m²Ω⁴</div>
+      <p>La simulación usa RK4 con h = 0.05 s y parte del reposo.</p></div>
+    <div class="card"><h3>Entrada de parámetros (SI)</h3>
+      <div class="ctrl" id="fm3" data-live></div>
+      <div style="margin-top:14px"><button class="btn ghost" onclick="applyPreset('m3')">Restaurar escenario</button></div></div>
+  </div>
+  <div class="kpis-in" id="k3"></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Respuesta temporal x(t)</h3><div class="chartbox"><canvas id="c6"></canvas></div></div>
+    <div class="card"><h3>Respuesta en frecuencia X(Ω)</h3><div class="chartbox"><canvas id="c7"></canvas></div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Parámetros dinámicos</h3><div class="tw" id="t3"></div></div>
+    <div class="card"><h3>Presupuesto de alerta (1.10 s)</h3><div class="tw" id="lat3"></div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Calibración de m, k y c (sistema normal 3×3 escalado)</h3><div class="tw" id="cal3"></div></div>
+    <div class="card"><h3>Interpretación</h3><div id="s3"></div></div>
+  </div>
+</div></section>
+
+<!-- ================= 07 MÓDULO 4 ================= -->
+<section class="light2" id="m4"><div class="wrap">
+  <div class="kicker">07 · Módulo 4 · Reconstrucción de sensores</div>
+  <h2>Calibración y <em>reconstrucción</em></h2>
+  <p class="sub">Las lecturas brutas se ajustan con un polinomio por mínimos cuadrados. Luego, la señal se reconstruye en
+  instantes ocultos mediante interpolación.</p>
+  <div class="grid g2">
+    <div class="card accent"><h3>Calibración</h3>
+      <div class="eq sm">p(r) = c₀ + c₁·r + … + c_d·r^d</div>
+      <div class="eq sm">(VᵀV)·c = Vᵀ·y ,&nbsp; κ₂(A) = λ_max / λ_min</div>
+      <p>Si los nodos son distintos y m ≥ n, la matriz A = VᵀV es SPD.</p></div>
+    <div class="card"><h3>Entrada de parámetros</h3>
+      <div class="ctrl" id="fm4" data-live></div>
+      <div style="margin-top:14px"><button class="btn ghost" onclick="applyPreset('m4')">Restaurar escenario</button></div></div>
+  </div>
+  <div class="kpis-in" id="k4"></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Datos, ajuste y referencia</h3><div class="chartbox"><canvas id="c8"></canvas></div></div>
+    <div class="card"><h3>Coeficientes estimados</h3><div class="tw" id="t4"></div></div>
+  </div>
+  <div class="card mt"><h3>Reconstrucción por interpolación</h3>
+    <div class="grid g2">
+      <div>
+        <div class="eq sm">Lagrange: P(x) = Σ y_i·ℓ_i(x)</div>
+        <div class="eq sm">Spline natural: h_{i−1}M_{i−1} + 2(h_{i−1}+h_i)M_i + h_iM_{i+1} = 6[ (y_{i+1}−y_i)/h_i − (y_i−y_{i−1})/h_{i−1} ]</div>
+        <div class="ctrl" id="fmi" data-live></div>
+        <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn ghost" onclick="presetInterp(0)">Ejemplo de 3 nodos</button>
+          <button class="btn ghost" onclick="presetInterp(1)">Malla de 7 nodos</button>
+        </div>
+      </div>
+      <div class="tw" id="t5"></div>
+    </div>
+    <div class="chartbox mt"><canvas id="c9"></canvas></div>
+    <div id="s5" class="mt"></div>
+  </div>
+</div></section>
+
+<!-- ================= 08 MÉTODOS ================= -->
+<section class="dark" id="metodos"><div class="wrap">
+  <div class="kicker">08 · Métodos numéricos</div>
+  <h2>Solucionadores <em>comparados</em></h2>
+  <p class="sub">Elige un sistema lineal para comparar LU, Jacobi, Gauss-Seidel y Gradiente Conjugado. Se reportan iteraciones,
+  residual, errores y el radio espectral observado.</p>
+  <div class="card"><div class="ctrl" data-live style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+    <div><label>Sistema a resolver</label><select id="solSys">
+      <option value="m1">Hidráulico 4×4 (Módulo 1)</option>
+      <option value="m2n">Calibración Normal 4×4 (Módulo 2)</option>
+      <option value="m2e">Calibración Estrés 4×4 (Módulo 2)</option>
+      <option value="m2m">Calibración Mal condicionado (Módulo 2)</option>
+      <option value="m3">Normal escalado 3×3 (Módulo 3)</option>
+      <option value="m4">Mínimos cuadrados (Módulo 4)</option>
+    </select></div>
+  </div></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Tabla de solucionadores</h3><div class="tw" id="tSolv"></div></div>
+    <div class="card"><h3>Historial del residual relativo</h3><div class="chartbox"><canvas id="c10"></canvas></div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Radio espectral observado y predicción de iteraciones</h3><div class="tw" id="tRho"></div>
+      <p class="note">ρ observado ≈ (r_k / r_{k−10})^(1/10). Predicción k ≈ ln(tol)/ln ρ.</p></div>
+    <div class="card"><h3>Pseudocódigo unificado</h3>
+<pre>ResolverSistemaSPD(A, b, tol, max_iter, metodo)
+  validar dim(A) = n x n y dim(b) = n
+  si metodo = LU:
+     Doolittle: U(i,j) = A(i,j) − Σ L(i,k)U(k,j)
+                L(j,i) = (A(j,i) − Σ L(j,k)U(k,i)) / U(i,i)
+     resolver L·y = b y U·x = y
+  x ← 0 ; r ← b ; res ← ‖r‖₂/‖b‖₂
+  mientras res > tol y k < max_iter:
+     JACOBI:      x_i ← (b_i − Σ_{j≠i} A_ij·x_j) / A_ii
+     GAUSS-SEIDEL: igual, usando valores ya actualizados
+     CG:          α = rᵀr/(pᵀAp); x += αp; r −= αAp
+                  β = r'ᵀr'/rᵀr; p = r' + βp
+     si res > 1e100 o no finito: DIVERGIÓ
+  devolver x, k, estado, historial</pre></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Error frente a h: RK2 (Heun) y RK4</h3><div class="chartbox"><canvas id="c3"></canvas></div></div>
+    <div class="card"><h3>Tabla de orden de convergencia</h3><div class="tw" id="tRK"></div></div>
+  </div>
+</div></section>
+
+<!-- ================= 09 TEORÍA DE ERRORES ================= -->
+<section class="light" id="errores"><div class="wrap">
+  <div class="kicker">09 · Teoría de errores transversal</div>
+  <h2>Calculadora de <em>errores</em></h2>
+  <p class="sub">Introduce un vector de referencia y su aproximación. Si eliges un sistema, también se calcula el residual y
+  la cota κ₂·‖r‖/‖b‖. Si la referencia es nula no se divide: solo se reporta el error absoluto.</p>
+  <div class="grid g2">
+    <div class="card accent">
+      <div class="ctrl" data-live style="grid-template-columns:1fr">
+        <div><label>Vector de referencia x_ref (separado por comas)</label><textarea id="exRef" rows="2">2, 3, 2.5, 1.5</textarea></div>
+        <div><label>Aproximación x̃</label><textarea id="exApx" rows="2">2.00001, 3, 2.5, 1.5</textarea></div>
+        <div><label>Sistema para residual</label><select id="exMat">
+          <option value="none">Ninguno</option><option value="m1">Hidráulico 4×4 (M1)</option>
+          <option value="m2n">Normal 4×4 (M2)</option><option value="m2m">Mal condicionado (M2)</option></select></div>
+      </div>
+    </div>
+    <div class="card"><h3>Resultados</h3><div id="outErr"></div></div>
+  </div>
+  <div class="grid g3 mt">
+    <div class="card"><h3>Errores</h3>
+      <div class="eq sm">E_abs = ‖x_ref − x̃‖</div><div class="eq sm">E_rel = E_abs / ‖x_ref‖</div><div class="eq sm">E% = 100·E_rel</div></div>
+    <div class="card"><h3>Residual y condición</h3>
+      <div class="eq sm">r = b − A·x̃</div><div class="eq sm">κ₂(A) = λ_max / λ_min</div><div class="eq sm">E_rel ≤ κ₂ · ‖r‖/‖b‖</div></div>
+    <div class="card"><h3>Fuentes de error</h3><ul>
+      <li>Truncamiento: paso h en RK y grado de interpolación.</li>
+      <li>Datos: ruido gaussiano en las lecturas.</li>
+      <li>Redondeo: aritmética de doble precisión.</li>
+      <li>Convergencia: tolerancia o límite de iteraciones.</li></ul></div>
+  </div>
+</div></section>
+
+<!-- ================= 10 ESCENARIOS ================= -->
+<section class="dark2" id="escenarios"><div class="wrap">
+  <div class="kicker">10 · Escenarios transversales</div>
+  <h2>Normal, <em>estrés</em> y mal condicionado</h2>
+  <p class="sub">Riesgo físico, alta exigencia numérica, mal condicionamiento y fallo de convergencia son conceptos
+  distintos. Cada escenario se evalúa con los cuatro módulos.</p>
+  <div class="grid g3">
+    <div class="card accent"><h3>Normal</h3><p>Datos consistentes, matrices bien condicionadas y parámetros dentro del rango nominal.</p></div>
+    <div class="card accent"><h3>Estrés</h3><p>Exigencia física o de datos (velocidad alta, latencia crítica, ruido). El riesgo cambia, el algoritmo no.</p></div>
+    <div class="card accent"><h3>Mal condicionado</h3><p>Sensibilidad matemática extrema: κ muy alto, raíces dobles o resonancia con amortiguamiento mínimo.</p></div>
+  </div>
+  <div class="card mt"><h3>Tabla comparativa</h3><div class="tw" id="tEsc"></div></div>
+  <div class="card mt"><h3>Distancia de parada y amplitud por escenario</h3><div class="chartbox"><canvas id="c11"></canvas></div></div>
+</div></section>
+
+<!-- ================= 11 ANÁLISIS ================= -->
+<section class="dark" id="analisis"><div class="wrap">
+  <div class="kicker">11 · Análisis</div>
+  <h2>Hallazgos y <em>decisiones</em></h2>
+  <p class="sub">Los textos se generan a partir de los resultados del escenario activo y de los parámetros actuales.</p>
+  <div id="findings"></div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Semáforo de seguridad y estabilidad</h3><div id="semaforo"></div></div>
+    <div class="card"><h3>Recomendaciones operativas</h3><div id="reco"></div></div>
+  </div>
+  <div class="card mt"><h3>Limitaciones del modelo</h3><ul>
+    <li><b>Datos sintéticos:</b> umbrales (D_seg = 15 m, D_u, A_lim) y coeficientes son supuestos.</li>
+    <li><b>Modelo unidimensional:</b> no incluye pendientes, elasticidad del cable ni balanceo de la cabina.</li>
+    <li><b>Deterioro determinista:</b> no incluye fatiga cíclica ni mantenimiento correctivo.</li>
+    <li><b>Viento armónico:</b> el espectro eólico real es de banda ancha; no hay no linealidad geométrica.</li>
+    <li><b>Ruido gaussiano:</b> el ruido real puede tener deriva térmica y fallas no estacionarias.</li></ul></div>
+</div></section>
+
+<!-- ================= 12 CONCLUSIONES ================= -->
+<section class="light" id="conclusiones"><div class="wrap">
+  <div class="kicker">12 · Conclusiones</div>
+  <h2>Dos dimensiones <em>independientes</em></h2>
+  <p class="sub">Las conclusiones numéricas evalúan algoritmos. Las conclusiones del problema interpretan la física y la operación.</p>
+  <div class="grid g2">
+    <div class="card accent"><h3>Numéricas (algoritmos)</h3><div id="concNum"></div></div>
+    <div class="card accent"><h3>Del problema (operación)</h3><div id="concProb"></div></div>
+  </div>
+  <div class="conclusion mt" id="concl"></div>
+</div></section>
+
+<footer><div class="wrap">SIMTELE-RISK · Modelación matemática · Heun (RK2) y Runge-Kutta 4 · Sistemas lineales SPD · Chart.js</div></footer>
+
+<script src="js/app.js"></script>
+</body>
+</html>
