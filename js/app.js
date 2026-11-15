@@ -56,9 +56,10 @@ function solveLU(A, b) {
 }
 
 // Iterativos: Jacobi, Gauss-Seidel y Gradiente Conjugado (x0 = 0)
-function iterSolve(method, A, b, tol, maxIt) {
+function iterSolve(method, A, b, tol, maxIt = 50000, normType = 'inf') {
   const n = b.length, nb = norm2(b) || 1;
-  let x = new Array(n).fill(0), r = sub(b, matVec(A, x)), res = norm2(r) / nb, k = 0;
+  let x = new Array(n).fill(0), r = sub(b, matVec(A, x));
+  let res = normType === 'inf' ? normInf(r) : (norm2(r) / nb), k = 0;
   let estado = res <= tol ? 'CONVERGIÓ' : 'NO_ALCANZÓ_TOL';
   const hist = [res];
   let p = r.slice(), rs = dot(r, r);
@@ -76,7 +77,7 @@ function iterSolve(method, A, b, tol, maxIt) {
       r = r.map((v, i) => v - alpha * Ap[i]);
       const rn = dot(r, r); p = r.map((v, i) => v + (rn / rs) * p[i]); rs = rn;
     }
-    k++; res = norm2(r) / nb; hist.push(res);
+    k++; res = normType === 'inf' ? normInf(r) : (norm2(r) / nb); hist.push(res);
     if (!isFinite(res) || res > 1e100) { estado = 'DIVERGIÓ'; break; }
     if (res <= tol) estado = 'CONVERGIÓ';
   }
@@ -104,21 +105,22 @@ function eigSym(M) {
 const kappaOf = A => { const ev = eigSym(A); return Math.max(...ev.map(Math.abs)) / Math.min(...ev.map(Math.abs)); };
 
 // Tabla de solucionadores: errores vs referencia (regla: no se divide si ‖x_ref‖ = 0)
-function solverRows(A, b, xref, tol, maxIt = 50000) {
+function solverRows(A, b, xref, tol, maxIt = 50000, normType = 'inf') {
   const nb = norm2(b) || 1, rows = [];
   const push = (nombre, x, k, estado, hist) => {
-    const res = norm2(sub(b, matVec(A, x))) / nb;
+    const res = normType === 'inf' ? normInf(sub(b, matVec(A, x))) : (norm2(sub(b, matVec(A, x))) / nb);
     let eI = null, eR = null;
     if (xref) {
       const e = sub(x, xref); eI = normInf(e);
-      const nx = norm2(xref); eR = nx > 0 ? norm2(e) / nx : null;
+      const nx = normType === 'inf' ? normInf(xref) : norm2(xref);
+      eR = (nx != null && Math.abs(nx) > 1e-14) ? (normType === 'inf' ? normInf(e) / nx : norm2(e) / nx) : null;
     }
     rows.push({ nombre, k, estado, res, eI, eR, hist });
   };
   try { push('LU (directo)', solveLU(A, b), 1, 'DIRECTO', []); }
   catch (e) { rows.push({ nombre: 'LU (directo)', k: '—', estado: 'Pivote nulo', res: NaN, eI: null, eR: null, hist: [] }); }
   [['jacobi', 'Jacobi'], ['gs', 'Gauss-Seidel'], ['cg', 'Gradiente conjugado']].forEach(([key, name]) => {
-    const s = iterSolve(key, A, b, tol, maxIt); push(name, s.x, s.k, s.estado, s.hist);
+    const s = iterSolve(key, A, b, tol, maxIt, normType); push(name, s.x, s.k, s.estado, s.hist);
   });
   return rows;
 }
@@ -157,38 +159,40 @@ function splineEval(S, x) {
 
 /* ---------- SISTEMAS DE REFERENCIA ---------- */
 const SYS = {
-  m1: { A: [[10, -2, -1, 0], [-2, 10, -2, -1], [-1, -2, 10, -2], [0, -1, -2, 10]], b: [11.5, 19.5, 14, 7], x: [2, 3, 2.5, 1.5], tol: 1e-6, nombre: 'Hidráulico 4×4 (Módulo 1)' },
-  m2n: { A: [[4, 1, 0, 0], [1, 4, 1, 0], [0, 1, 4, 1], [0, 0, 1, 3]], b: [6, 12, 18, 15], x: [1, 2, 3, 4], tol: 1e-8, nombre: 'Calibración Normal 4×4 (Módulo 2)' },
-  m2e: { A: [[4, 1, 0, 0], [1, 3, 1, 0], [0, 1, 3, 1], [0, 0, 1, 2.5]], b: [6.9, 10.7, 16.1, 14.2], x: [1.2, 2.1, 3.2, 4.4], tol: 1e-8, nombre: 'Calibración Estrés 4×4 (Módulo 2)' },
-  m2m: { A: [[1, .999, 0, 0], [.999, 1, 0, 0], [0, 0, .01, .00999], [0, 0, .00999, .01]], b: [1.6993, 1.699, 0.020992, 0.020987], x: [1, 0.7, 1.3, 0.8], tol: 1e-8, nombre: 'Calibración Mal condicionado (Módulo 2)' }
+  m1: { A: [[10, -2, -1, 0], [-2, 10, -2, -1], [-1, -2, 10, -2], [0, -1, -2, 10]], b: [11.5, 19.5, 14, 7], x: [2, 3, 2.5, 1.5], tol: 1e-6, norm: 'inf', nombre: 'Hidráulico 4×4 (Módulo 1)' },
+  m2n: { A: [[4, 1, 0, 0], [1, 4, 1, 0], [0, 1, 4, 1], [0, 0, 1, 3]], b: [6, 12, 18, 15], x: [1, 2, 3, 4], tol: 1e-8, norm: 'inf', nombre: 'Calibración Normal 4×4 (Módulo 2)' },
+  m2e: { A: [[4, 1, 0, 0], [1, 3, 1, 0], [0, 1, 3, 1], [0, 0, 1, 2.5]], b: [6.9, 10.7, 16.1, 14.2], x: [1.2, 2.1, 3.2, 4.4], tol: 1e-8, norm: 'inf', nombre: 'Calibración Estrés 4×4 (Módulo 2)' },
+  m2m: { A: [[1, .999, 0, 0], [.999, 1, 0, 0], [0, 0, .01, .00999], [0, 0, .00999, .01]], b: [1.6993, 1.699, 0.020992, 0.020987], x: [1, 0.7, 1.3, 0.8], tol: 1e-8, norm: 'inf', nombre: 'Calibración Mal condicionado (Módulo 2)' }
 };
 
 /* ---------- PRESETS DE ESCENARIO ---------- */
 const INTERP_DEF = { func: 'sin', nodos: '0, 1.5708, 3.1416', xt: 0.7854, M: 1 };
 const PRE = {
   N: {
-    m1: { model: 'const', v0: 5, a0: 1.25, amax: 1.25, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
+    m1: { model: 'const', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.10, alpha: 0.015, beta: 0.001, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 200, F0: 400, Om: 1.2, Alim: 0.5, Tsim: 60, ruido: 0.05 },
-    m4: { pts: 12, grado: 3, a: -1, b: 1, sigma: 0, seed: 101, coefs: '1,2,-1.5,0.5', tol: 1e-10 },
+    m4: { pts: 12, grado: 3, a: -1, b: 1, sigma: 0, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-10 },
     mi: INTERP_DEF
   },
   E: {
-    m1: { model: 'const', v0: 7, a0: 0.6, amax: 0.6, k: 0.8, c: 0, T: 4, sensor: 0.15, red: 0.55, plc: 0.20, act: 0.30, dseg: 15, h: 0.05 },
+    m1: { model: 'const', v0: 7, a0: 0.6, amax: 1.50, k: 0.8, c: 0, T: 4, sensor: 0.15, red: 0.55, plc: 0.20, act: 0.30, dseg: 15, h: 0.05 },
     m2: { D0: 0.12, alpha: 0.025, beta: 0.002, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 100, F0: 400, Om: 1.9, Alim: 0.5, Tsim: 60, ruido: 0.05 },
     m4: { pts: 60, grado: 3, a: -1, b: 1, sigma: 0.05, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-12 },
     mi: INTERP_DEF
   },
-  M: {
-    m1: { model: 'tang', v0: 5, a0: 1.25, amax: 1.25, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
+  MC: {
+    m1: { model: 'tang', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.24, alpha: 0.002, beta: 0.0001, Du: 0.2401, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 20, F0: 40, Om: 2.0, Alim: 0.5, Tsim: 150, ruido: 0.05 },
-    m4: { pts: 30, grado: 5, a: 0, b: 1, sigma: 0, seed: 101, coefs: '1,1,1,1,1,1', tol: 1e-10 },
+    m4: { pts: 30, grado: 5, a: 0, b: 1, sigma: 0, seed: 2026, coefs: '1,1,1,1,1,1', tol: 1e-10 },
     mi: INTERP_DEF
   }
 };
-const SCEN_NAME = { N: 'Normal', E: 'Estrés', M: 'Mal condicionado' };
+PRE.M = PRE.MC;
+const SCEN_KEYS = ['N', 'E', 'MC'];
+const SCEN_NAME = { N: 'Normal', E: 'Estrés', MC: 'Mal condicionado', M: 'Mal condicionado' };
 
 /* =====================================================================
    MÓDULO 1 · Detención de emergencia
@@ -322,7 +326,7 @@ const LAT3 = [['t_sensor', 'Captura del sensor de balanceo', 0.20], ['t_red', 'T
   ['t_PLC', 'Evaluación del umbral de alerta', 0.30], ['t_actuador', 'Activación de la alarma', 0.50]];
 
 function calib3(p) {
-  const { m, k, c, F0 } = p, R = rng(101), fr = [0.8, 1.2, 1.6, 2.0, 2.4];
+  const { m, k, c, F0 } = p, R = rng(2026), fr = [0.8, 1.2, 1.6, 2.0, 2.4];
   const Phi = [], y = [], Xm = [];
   fr.forEach(W => {
     const Xt = F0 / Math.hypot(k - m * W * W, c * W);
@@ -393,7 +397,7 @@ function mod4(p) {
   }
   const ev = eigSym(A), kap = Math.max(...ev.map(Math.abs)) / Math.min(...ev.map(Math.abs));
   let xref = null; try { xref = solveLU(A, b); } catch (e) { xref = null; }
-  const rows = solverRows(A, b, xref, p.tol);
+  const rows = solverRows(A, b, xref, p.tol, 50000, 'rel2');
   const cgRow = rows.find(q => q.nombre.startsWith('Gradiente'));
   const basis = t => Array.from({ length: n }, (_, j) => t ** j);
   const grid = linspace(p.a, p.b, 200);
@@ -427,8 +431,8 @@ function modInterp(p) {
    SISTEMAS PARA MÉTODOS Y ERRORES
    ===================================================================== */
 function sysFor(key) {
-  if (key === 'm3' && LAST.r3 && LAST.r3.cal) { const c = LAST.r3.cal; return { A: c.N, b: c.bN, xs: c.sT, tol: 1e-10, nombre: 'Normal escalado 3×3 (Módulo 3)' }; }
-  if (key === 'm4' && LAST.r4) return { A: LAST.r4.A, b: LAST.r4.b, xs: LAST.r4.xref, tol: LAST.r4.tol, nombre: 'Mínimos cuadrados (Módulo 4)' };
+  if (key === 'm3' && LAST.r3 && LAST.r3.cal) { const c = LAST.r3.cal; return { A: c.N, b: c.bN, xs: c.sT, tol: 1e-10, norm: 'rel2', nombre: 'Normal escalado 3×3 (Módulo 3)' }; }
+  if (key === 'm4' && LAST.r4) return { A: LAST.r4.A, b: LAST.r4.b, xs: LAST.r4.xref, tol: LAST.r4.tol, norm: 'rel2', nombre: 'Mínimos cuadrados (Módulo 4)' };
   return SYS[key in SYS ? key : 'm1'];
 }
 
@@ -526,7 +530,7 @@ function renderKPIs() {
   $('kpis').innerHTML =
     kpi('D_total · Módulo 1', fmt(r1.D, 2) + ' m', r1.seguro ? pill('ok', 'Dentro de D_seg') : pill('bad', 'Supera D_seg')) +
     kpi('Cruce t* · Módulo 2', r2.tStar == null ? '—' : fmt(r2.tStar, 2) + ' meses', r2.estado) +
-    kpi('Amplitud X · Módulo 3', fmt(r3.X, 3) + ' m', r3.X <= r3.Alim ? pill('ok', 'Bajo A_lim') : pill('bad', 'Supera A_lim')) +
+    kpi('Amplitud X(Ω) · Módulo 3', fmt(r3.X, 2) + ' m', r3.X <= 0.50 ? pill('ok', '≤ 0.50 m (Cumple)') : pill('bad', '> 0.50 m (No cumple)')) +
     kpi('κ₂ sensores · Módulo 4', sci(r4.kap), r4.kap < 1e3 ? 'Bien condicionado' : 'Mal condicionado');
 }
 
@@ -578,7 +582,6 @@ const estadoPill = e => {
 };
 const li = arr => `<ul>${arr.map(t => `<li>${t}</li>`).join('')}</ul>`;
 const val = id => ($(id) ? $(id).value : '');
-const SCEN_KEYS = ['N', 'E', 'M'];
 const CONTRATO = 'simtele-risk/simulacion/v1';
 
 function render2(r) {
@@ -619,7 +622,7 @@ function render2(r) {
 function render3(r) {
   const c = r.cal, tEnd = r.ts.length ? r.ts[r.ts.length - 1] : 1;
   $('k3').innerHTML =
-    kpi('Amplitud en régimen X', fmt(r.X, 4) + ' m', r.X <= r.Alim ? pill('ok', 'Bajo A_lim') : pill('bad', 'Supera A_lim')) +
+    kpi('Amplitud en régimen X(Ω)', fmt(r.X, 4) + ' m', r.X <= r.Alim ? pill('ok', 'Bajo A_lim') : pill('bad', 'Supera A_lim')) +
     kpi('Frecuencia natural ω', fmt(r.w, 4) + ' rad/s', `Razón Ω/ω = ${fmt(r.rr, 3)}`) +
     kpi('Amortiguamiento ζ', fmt(r.z, 4), r.z < 1 ? 'Subamortiguado' : 'Amortiguamiento crítico o mayor') +
     kpi('Constante τ = 1/(ζω)', fmt(r.tau, 2) + ' s', `Periodo natural T_n = ${fmt(r.Tn, 2)} s`);
@@ -631,9 +634,9 @@ function render3(r) {
     ['Constante de tiempo τ', fmt(r.tau, 2) + ' s', '1 / (ζ·ω)'],
     ['Periodo natural T_n', fmt(r.Tn, 3) + ' s', '2π / ω'],
     ['Periodo del viento T_Ω', fmt(r.TO, 3) + ' s', '2π / Ω'],
-    ['Amplitud analítica X', fmt(r.X, 4) + ' m', 'F₀ / √((k − mΩ²)² + (cΩ)²)'],
+    ['Amplitud analítica X(Ω)', fmt(r.X, 4) + ' m', 'F₀ / √((k − mΩ²)² + (cΩ)²)'],
     ['Amplitud numérica (RK4)', fmt(r.Aper, 4) + ' m', 'máx |x| en los últimos 3 periodos'],
-    ['Error relativo de X', r.X ? sci(Math.abs(r.Aper - r.X) / r.X) : '—', '|X_num − X| / X'],
+    ['Error relativo de X', (r.X != null && Math.abs(r.X) > 1e-14) ? sci(Math.abs(r.Aper - r.X) / r.X) : '—', '|X_num − X| / X'],
     ['Fase φ', fmt(r.phi, 4) + ' rad', 'atan2(cΩ, k − mΩ²)'],
     ['Amplitud en resonancia (aprox.)', fmt(r.Xres, 4) + ' m', 'F₀ / (c·ω)'],
     ['Deflexión estática F₀/k', fmt(r.est, 4) + ' m', 'F₀ / k']
@@ -716,13 +719,15 @@ function render4(r, ri) {
 function renderMethods() {
   if (!LAST.r1) return;
   const key = val('solSys') || 'm1', sys = sysFor(key);
-  const rows = solverRows(sys.A, sys.b, sys.xs, sys.tol);
+  const rows = solverRows(sys.A, sys.b, sys.xs, sys.tol, 50000, sys.norm || 'inf');
   const iter = rows.slice(1);
   const kap = kappaOf(sys.A), kq = Math.sqrt(kap);
   const cgRate = (kq - 1) / (kq + 1);
 
-  $('tSolv').innerHTML = tbl(['Método', 'Iteraciones', 'Estado', '‖b − Ax‖/‖b‖', '‖e‖∞', '‖e‖₂/‖x_ref‖₂'],
-    rows.map(q => [q.nombre, String(q.k), estadoPill(q.estado), sci(q.res), sci(q.eI), sci(q.eR)]));
+  const resLabel = (sys.norm === 'inf') ? '‖b − Ax‖∞' : '‖b − Ax‖₂/‖b‖₂';
+  const errLabel = (sys.norm === 'inf') ? '‖e‖∞/‖x_ref‖∞' : '‖e‖₂/‖x_ref‖₂';
+  $('tSolv').innerHTML = tbl(['Método', 'Iteraciones', 'Estado', resLabel, '‖e‖∞', errLabel],
+    rows.map(q => [q.nombre, String(q.k), estadoPill(q.estado), sci(q.res), sci(q.eI), q.eR != null ? sci(q.eR) : '—']));
 
   const cols = [C.R, C.Y, C.O];
   let maxIt = 1;
@@ -732,7 +737,8 @@ function renderMethods() {
   });
   if (cds.length) {
     cds.push(ds(`Tolerancia ${sci(sys.tol)}`, [{ x: 0, y: sys.tol }, { x: maxIt, y: sys.tol }], C.G, { dash: [6, 4] }));
-    chart('c10', 'line', cds, 'Iteración k', '‖r_k‖ / ‖b‖ (escala log)', { yType: 'logarithmic' });
+    const yAxisLabel = (sys.norm === 'inf' ? '‖r_k‖∞' : '‖r_k‖₂ / ‖b‖₂') + ' (escala log)';
+    chart('c10', 'line', cds, 'Iteración k', yAxisLabel, { yType: 'logarithmic' });
   }
 
   const kIter = Math.ceil(0.5 * kq * Math.log(2 / sys.tol));
@@ -954,10 +960,41 @@ function recalcAll() {
 function exportJSON() {
   if (!LAST.r1) return;
   const { r1, r2, r3, r4, ri } = LAST;
+  const esc = val('scen') || 'N';
+  const m2Key = (esc === 'E') ? 'm2e' : (esc === 'MC' || esc === 'M') ? 'm2m' : 'm2n';
+  const sys2 = SYS[m2Key];
+  const mapSolverRows = rows => (rows || []).map(q => ({
+    metodo: q.nombre,
+    iteraciones: q.k,
+    estado: q.estado,
+    residual: q.res,
+    residual_relativo: q.res,
+    error_inf: q.eI,
+    error_rel: q.eR
+  }));
+
+  const m1Rows = solverRows(SYS.m1.A, SYS.m1.b, SYS.m1.x, SYS.m1.tol, 50000, SYS.m1.norm);
+  const m2Rows = solverRows(sys2.A, sys2.b, sys2.x, sys2.tol, 50000, sys2.norm);
+  const m3Rows = (r3 && r3.cal) ? solverRows(r3.cal.N, r3.cal.bN, r3.cal.sT, 1e-10, 50000, 'rel2') : [];
+  const m4Rows = r4 ? r4.rows : [];
+
+  const pM1 = readForm('m1');
+  const pM4 = readForm('m4');
+  if (esc === 'N') {
+    if (pM1.amax === undefined || pM1.amax === null) pM1.amax = 1.5;
+    if (pM4.seed === undefined || pM4.seed === null) pM4.seed = 2026;
+  }
+
   const doc = {
     contrato: CONTRATO,
-    escenario: val('scen'),
-    parametros: { m1: readForm('m1'), m2: readForm('m2'), m3: readForm('m3'), m4: readForm('m4'), mi: readForm('mi') },
+    escenario: esc,
+    parametros: {
+      m1: pM1,
+      m2: readForm('m2'),
+      m3: readForm('m3'),
+      m4: pM4,
+      mi: readForm('mi')
+    },
     resultados: {
       m1: { t_reaccion: r1.tr, distancia_reaccion: r1.dR, t_detencion: r1.tdet, D_total: r1.D, margen: r1.margen, seguro: r1.seguro },
       m2: { t_star: r2.tStar, t_newton: r2.tN, sensibilidad: r2.sens, estado: r2.estado },
@@ -966,7 +1003,10 @@ function exportJSON() {
       mi: ri ? { valor: ri.L, error: ri.eL, cota: ri.cota } : null
     },
     solvers: {
-      m4: r4.rows.map(q => ({ metodo: q.nombre, iteraciones: q.k, estado: q.estado, residual_relativo: q.res, error_inf: q.eI }))
+      m1: mapSolverRows(m1Rows),
+      m2: mapSolverRows(m2Rows),
+      m3: mapSolverRows(m3Rows),
+      m4: mapSolverRows(m4Rows)
     }
   };
   const txt = JSON.stringify(doc, (k, v) => (typeof v === 'number' && !isFinite(v)) ? null : v, 2);
@@ -986,10 +1026,42 @@ function importJSON(ev) {
     try {
       const doc = JSON.parse(rd.result);
       if (doc.contrato !== CONTRATO) throw new Error('contrato no reconocido: ' + doc.contrato);
-      if (doc.escenario && PRE[doc.escenario]) $('scen').value = doc.escenario;
+      const sc = (doc.escenario === 'M' || doc.escenario === 'MC') ? 'MC' : doc.escenario;
+      if (sc && (PRE[sc] || sc === 'MC')) {
+        $('scen').value = sc;
+        applyScenario();
+      }
       const P = doc.parametros || {};
       ['m1', 'm2', 'm3', 'm4', 'mi'].forEach(m => { if (P[m]) setForm(m, P[m]); });
-      schedule();
+      recalcAll();
+      if (doc.resultados) {
+        const diffs = [];
+        const tol = 1e-3;
+        const check = (name, valExp, valAct) => {
+          if (typeof valExp === 'number' && typeof valAct === 'number') {
+            const err = Math.abs(valExp - valAct);
+            if (err > tol) diffs.push(`${name}: esperado ${valExp}, obtenido ${valAct} (Δ=${err.toExponential(2)})`);
+          }
+        };
+        if (doc.resultados.m1 && LAST.r1) {
+          check('M1 D_total', doc.resultados.m1.D_total, LAST.r1.D);
+          check('M1 t_detencion', doc.resultados.m1.t_detencion, LAST.r1.tdet);
+        }
+        if (doc.resultados.m2 && LAST.r2) {
+          check('M2 t_star', doc.resultados.m2.t_star, LAST.r2.tStar);
+        }
+        if (doc.resultados.m3 && LAST.r3) {
+          check('M3 X', doc.resultados.m3.X, LAST.r3.X);
+        }
+        if (doc.resultados.m4 && LAST.r4) {
+          check('M4 kappa2', doc.resultados.m4.kappa2, LAST.r4.kap);
+        }
+        if (diffs.length > 0) {
+          alert('Archivo importado con discrepancias numéricas (> 1e-3):\n' + diffs.join('\n'));
+        } else {
+          alert('Archivo importado y validado con éxito. Todos los parámetros y resultados coinciden dentro de la tolerancia.');
+        }
+      }
     } catch (e) {
       alert('No se pudo importar el archivo: ' + e.message);
     }

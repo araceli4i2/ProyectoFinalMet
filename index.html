@@ -29,10 +29,13 @@
     <select id="scen" data-live>
       <option value="N">Normal</option>
       <option value="E">Estrés</option>
-      <option value="M">Mal condicionado</option>
+      <option value="MC">Mal condicionado</option>
     </select>
     <a class="btn primary" href="#m1">Explorar módulos</a>
     <a class="btn ghost" href="#analisis">Ir al análisis</a>
+  </div>
+  <div style="background:rgba(255,122,0,0.12);border:1px solid rgba(255,122,0,0.4);color:#ffa53d;padding:9px 14px;border-radius:6px;font-size:0.85rem;margin-top:14px;line-height:1.4">
+    ⚠️ <strong>Aviso educativo:</strong> Todos los datos, parámetros y escenarios son 100% sintéticos y de uso estrictamente educativo; no representan mediciones reales de Mi Teleférico.
   </div>
 </div></header>
 <div class="wrap"><div class="kpis" id="kpis"></div></div>
@@ -229,7 +232,7 @@
     <div class="card accent"><h3>Calibración</h3>
       <div class="eq sm">p(r) = c₀ + c₁·r + … + c_d·r^d</div>
       <div class="eq sm">(VᵀV)·c = Vᵀ·y ,&nbsp; κ₂(A) = λ_max / λ_min</div>
-      <p>Si los nodos son distintos y m ≥ n, la matriz A = VᵀV es SPD.</p></div>
+      <p>Si los nodos son distintos y m ≥ n, la matriz A = VᵀV es SPD. El uso de la base monomial sobre [0, 1] eleva sensiblemente el número de condición κ₂(A).</p></div>
     <div class="card"><h3>Entrada de parámetros</h3>
       <div class="ctrl" id="fm4" data-live></div>
       <div style="margin-top:14px"><button class="btn ghost" onclick="applyPreset('m4')">Restaurar escenario</button></div></div>
@@ -378,7 +381,10 @@
   <div class="conclusion mt" id="concl"></div>
 </div></section>
 
-<footer><div class="wrap">SIMTELE-RISK · Modelación matemática · Heun (RK2) y Runge-Kutta 4 · Sistemas lineales SPD · Chart.js</div></footer>
+<footer><div class="wrap">
+  <div>SIMTELE-RISK · Modelación matemática · Heun (RK2) y Runge-Kutta 4 · Sistemas lineales SPD · Chart.js</div>
+  <div style="font-size:0.8rem;color:#9a9a9a;margin-top:6px">Todos los datos, parámetros y escenarios son 100% sintéticos y de uso estrictamente educativo; no representan mediciones reales de Mi Teleférico.</div>
+</div></footer>
 
 <script src="js/app.js"></script>
 </body>
