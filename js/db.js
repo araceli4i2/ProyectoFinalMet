@@ -1385,7 +1385,19 @@ PRAGMA user_version = 2;
     }
   }
 
-  // Renderizar la tabla de historial en el DOM
+  // Restablecer los filtros de búsqueda del historial
+  function resetHistoryFilters() {
+    if (typeof document === 'undefined') return;
+    const s = document.getElementById('histSearch'); if (s) s.value = '';
+    const m = document.getElementById('histModulo'); if (m) m.value = 'all';
+    const e = document.getElementById('histEscenario'); if (e) e.value = 'all';
+    const est = document.getElementById('histEstado'); if (est) est.value = 'all';
+    const t = document.getElementById('histTipo'); if (t) t.value = 'all';
+    const f = document.getElementById('histFecha'); if (f) f.value = '';
+    renderHistory();
+  }
+
+  // Renderizar la tabla de historial en el DOM con soporte de búsqueda y filtros
   function renderHistory() {
     const container = document.getElementById('tHistorial');
     if (!container || !db) return;
@@ -1394,7 +1406,8 @@ PRAGMA user_version = 2;
       const res = db.exec(`
         SELECT s.id, s.fecha, s.estado, s.coincide, s.diferencia_max,
                c.nombre AS caso_nombre, e.tipo AS escenario_tipo,
-               s.simulacion_origen_id, s.tol_comparacion
+               s.simulacion_origen_id, s.tol_comparacion,
+               s.usuario_equipo, e.caso_id
         FROM simulacion s
         JOIN escenario e ON s.escenario_id = e.id
         JOIN caso_estudio c ON e.caso_id = c.id
@@ -1409,7 +1422,69 @@ PRAGMA user_version = 2;
       const rows = res[0].values;
       const fmtExp = (n) => (n != null ? (Math.abs(n) < 1e-3 || Math.abs(n) >= 1e4 ? Number(n).toExponential(2) : Number(n).toFixed(4)) : '—');
 
+      // Leer valores de los controles de filtrado (con guards de seguridad)
+      const search = (typeof document !== 'undefined' && document.getElementById('histSearch'))
+        ? document.getElementById('histSearch').value.trim().toLowerCase() : '';
+      const filterMod = (typeof document !== 'undefined' && document.getElementById('histModulo'))
+        ? document.getElementById('histModulo').value : 'all';
+      const filterEsc = (typeof document !== 'undefined' && document.getElementById('histEscenario'))
+        ? document.getElementById('histEscenario').value : 'all';
+      const filterEst = (typeof document !== 'undefined' && document.getElementById('histEstado'))
+        ? document.getElementById('histEstado').value : 'all';
+      const filterTipo = (typeof document !== 'undefined' && document.getElementById('histTipo'))
+        ? document.getElementById('histTipo').value : 'all';
+      const filterFecha = (typeof document !== 'undefined' && document.getElementById('histFecha'))
+        ? document.getElementById('histFecha').value : '';
+
+      // Aplicar filtros en memoria
+      const filtered = rows.filter(r => {
+        const simId = r[0];
+        const fecha = r[1] || '';
+        const estado = r[2] || '';
+        const casoNom = r[5] || '';
+        const escTipo = r[6] || '';
+        const origenId = r[7];
+        const usuarioEquipo = r[9] || '';
+        const casoId = r[10];
+
+        if (filterMod !== 'all' && Number(filterMod) !== casoId) return false;
+        if (filterEsc !== 'all' && escTipo !== filterEsc) return false;
+        if (filterEst !== 'all' && estado !== filterEst) return false;
+        if (filterTipo === 'ejemplo' && usuarioEquipo !== 'EJEMPLO') return false;
+        if (filterTipo === 'usuario' && (usuarioEquipo === 'EJEMPLO' || origenId !== null)) return false;
+        if (filterTipo === 'relanzada' && origenId === null) return false;
+        if (filterFecha && !fecha.startsWith(filterFecha)) return false;
+
+        if (search) {
+          const matchId = String(simId).includes(search);
+          const matchOrigen = origenId != null && String(origenId).includes(search);
+          const matchMod = casoNom.toLowerCase().includes(search);
+          const matchEsc = escTipo.toLowerCase().includes(search);
+          const matchEst = estado.toLowerCase().includes(search);
+          const matchUser = usuarioEquipo.toLowerCase().includes(search);
+          if (!matchId && !matchOrigen && !matchMod && !matchEsc && !matchEst && !matchUser) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div style="padding:24px;text-align:center;background:rgba(255,255,255,0.02);border-radius:6px;border:1px dashed rgba(255,255,255,0.15)">
+            <p class="note" style="margin-bottom:8px">No se encontraron simulaciones que coincidan con los criterios de búsqueda y filtros seleccionados.</p>
+            <button class="btn ghost sm" onclick="DB.resetHistoryFilters()">Restablecer filtros</button>
+          </div>
+        `;
+        return;
+      }
+
+      const counterNotice = (filtered.length < rows.length)
+        ? `<div style="font-size:0.8rem;color:var(--text-muted, #888);margin-bottom:8px">Mostrando <strong>${filtered.length}</strong> de <strong>${rows.length}</strong> simulaciones registradas</div>`
+        : '';
+
       const html = `
+        ${counterNotice}
         <table class="tbl" style="width:100%;font-size:0.85rem">
           <thead>
             <tr>
@@ -1423,7 +1498,7 @@ PRAGMA user_version = 2;
             </tr>
           </thead>
           <tbody>
-            ${rows.map(r => {
+            ${filtered.map(r => {
               const simId = r[0];
               const fecha = r[1];
               const estado = r[2];
@@ -1498,6 +1573,7 @@ PRAGMA user_version = 2;
     renderSimulationFromDB,
     deleteSimulation,
     renderHistory,
+    resetHistoryFilters,
     sortKeys,
     normalizeParamJson
   };
