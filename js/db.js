@@ -580,6 +580,11 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     if (typeof document !== 'undefined') {
       const banner = document.getElementById('queryModeBanner');
       if (banner) banner.style.display = 'none';
+      const notice = document.getElementById('queryBannerNotice');
+      if (notice) {
+        notice.style.display = 'none';
+        notice.innerHTML = '';
+      }
 
       // Habilitar todos los controles de formularios
       const formControls = document.querySelectorAll('#scen, [data-m] input, [data-m] select, button.btn-preset, input[data-live]');
@@ -705,36 +710,56 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     }
 
     // 7. Renderizar Gráficos directamente desde serie_grafico
-    // Si alguna serie no existe, emitir aviso claro sin error
+    // Si alguna serie no existe, emitir aviso visible en pantalla y console.warn
     const allSeries = [];
     ejecuciones.forEach(ej => {
       (ej.series || []).forEach(s => allSeries.push(s));
     });
 
-    const plotOrWarn = (canvasId, serieNamePrefix, xLabel, yLabel, color, opts={}) => {
-      const s = allSeries.find(item => item.nombre.includes(serieNamePrefix));
-      if (s && s.datos_json) {
-        try {
-          const pts = JSON.parse(s.datos_json);
-          if (Array.isArray(pts) && pts.length > 0) {
-            chart(canvasId, 'line', [ds(s.nombre, pts, color, opts)], xLabel, yLabel);
-            return true;
+    const noticeEl = (typeof document !== 'undefined') ? document.getElementById('queryBannerNotice') : null;
+    if (allSeries.length === 0) {
+      if (noticeEl) {
+        noticeEl.style.display = 'block';
+        noticeEl.innerHTML = 'ℹ️ <strong>Aviso:</strong> Esta simulación no incluye series para gráficos; se muestran solo los datos tabulares.';
+      }
+    } else {
+      const missingPlots = [];
+      const plotOrWarn = (canvasId, serieNamePrefix, xLabel, yLabel, color, opts={}) => {
+        const s = allSeries.find(item => item.nombre.includes(serieNamePrefix));
+        if (s && s.datos_json) {
+          try {
+            const pts = JSON.parse(s.datos_json);
+            if (Array.isArray(pts) && pts.length > 0) {
+              chart(canvasId, 'line', [ds(s.nombre, pts, color, opts)], xLabel, yLabel);
+              return true;
+            }
+          } catch (e) {
+            console.warn(`Aviso: Error parseando datos de la serie ${s.nombre}:`, e.message);
           }
-        } catch (e) {
-          console.warn(`Aviso: Error parseando datos de la serie ${s.nombre}:`, e.message);
+        }
+        missingPlots.push(serieNamePrefix);
+        console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie '${serieNamePrefix}'. Se omite la visualización de ${canvasId} sin error.`);
+        return false;
+      };
+
+      plotOrWarn('c1', 'velocidad', 'Tiempo t (s)', 'Velocidad v (m/s)', C.O, { bw: 3 });
+      plotOrWarn('c2', 'posicion', 'Tiempo t (s)', 'Distancia (m)', C.Y, { bw: 3 });
+      plotOrWarn('c4', 'deterioro', 'Tiempo t (meses)', 'D(t)', C.O, { bw: 3 });
+      plotOrWarn('c5', 'sensibilidad', 'Margen ΔD', 't* (meses)', C.O, { bw: 3, xType: 'logarithmic', yType: 'logarithmic' });
+      plotOrWarn('c6', 'resonancia', 'Frecuencia Ω (rad/s)', 'Amplitud X (m)', C.O, { bw: 3 });
+      plotOrWarn('c7', 'oscilacion', 'Tiempo t (s)', 'Desplazamiento x (m)', C.O, { bw: 2 });
+      plotOrWarn('c8', 'ajuste', 'Variable r', 'y(r)', C.O, { bw: 3 });
+
+      if (noticeEl) {
+        if (missingPlots.length > 0) {
+          noticeEl.style.display = 'block';
+          noticeEl.innerHTML = `ℹ️ <strong>Aviso:</strong> Esta simulación no incluye series para ciertos gráficos (${missingPlots.join(', ')}); se visualizan solo las series disponibles.`;
+        } else {
+          noticeEl.style.display = 'none';
+          noticeEl.innerHTML = '';
         }
       }
-      console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie '${serieNamePrefix}'. Se omite la visualización de ${canvasId} sin error.`);
-      return false;
-    };
-
-    plotOrWarn('c1', 'velocidad', 'Tiempo t (s)', 'Velocidad v (m/s)', C.O, { bw: 3 });
-    plotOrWarn('c2', 'posicion', 'Tiempo t (s)', 'Distancia (m)', C.Y, { bw: 3 });
-    plotOrWarn('c4', 'deterioro', 'Tiempo t (meses)', 'D(t)', C.O, { bw: 3 });
-    plotOrWarn('c5', 'sensibilidad', 'Margen ΔD', 't* (meses)', C.O, { bw: 3, xType: 'logarithmic', yType: 'logarithmic' });
-    plotOrWarn('c6', 'resonancia', 'Frecuencia Ω (rad/s)', 'Amplitud X (m)', C.O, { bw: 3 });
-    plotOrWarn('c7', 'oscilacion', 'Tiempo t (s)', 'Desplazamiento x (m)', C.O, { bw: 2 });
-    plotOrWarn('c8', 'ajuste', 'Variable r', 'y(r)', C.O, { bw: 3 });
+    }
 
     // 8. Renderizar Conclusiones
     if (conclNum.length > 0) {

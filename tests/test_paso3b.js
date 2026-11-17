@@ -182,6 +182,9 @@ async function runPaso3BTests() {
   assert(sinError === true, 'No debe arrojar ningún error al faltar series');
   assert(loadedSinSeries !== null, 'Carga simulación sin series');
   assert(loadedSinSeries.ejecuciones[0].series.length === 0, 'La lista de series está vacía');
+  assert(domElements['queryBannerNotice'].style.display === 'block', 'El aviso visible de series faltantes debe mostrarse en pantalla');
+  assert(domElements['queryBannerNotice'].innerHTML.includes('Esta simulación no incluye series para gráficos'), 'El texto de aviso en banner debe indicar que no incluye series');
+  console.log('   -> Aviso visible en pantalla comprobado: ' + domElements['queryBannerNotice'].innerHTML);
   console.log('   -> Simulación sin series manejada limpiamente sin errores.');
 
 
@@ -191,6 +194,7 @@ async function runPaso3BTests() {
   assert(DB.getQueryMode() === false, 'isQueryMode debe volver a false');
   assert(global.window.IS_QUERY_MODE === false, 'window.IS_QUERY_MODE debe volver a false');
   assert(domElements['queryModeBanner'].style.display === 'none', 'El banner debe ocultarse');
+  assert(domElements['queryBannerNotice'].style.display === 'none', 'El aviso de series debe ocultarse al salir del modo consulta');
   assert(domElements['recalc_called'] === true, 'recalcAll fue invocado para restaurar reactividad');
   console.log('   -> Salida del modo consulta y recálculo reactivo restablecido con éxito.');
 

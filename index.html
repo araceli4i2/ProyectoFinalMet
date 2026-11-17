@@ -18,9 +18,12 @@
 </div></nav>
 
 <!-- Banner Modo Consulta (Persistencia SQLite) -->
-<div id="queryModeBanner" style="display:none;background:#ff7a00;color:#0b0d10;padding:12px 24px;font-weight:600;position:sticky;top:0;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.4);align-items:center;justify-content:center;gap:16px;">
-  <span>⚠️ <strong>Modo consulta: simulación guardada #<span id="querySimId">—</span> (sin recálculo)</strong> — Los parámetros, tablas y gráficos se cargan directamente desde SQLite sin reejecutar fórmulas.</span>
-  <button class="btn sm" style="background:#0b0d10;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:700" onclick="DB.exitQueryMode()">Volver al modo normal</button>
+<div id="queryModeBanner" style="display:none;background:#ff7a00;color:#0b0d10;padding:12px 24px;font-weight:600;position:sticky;top:0;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.4);flex-direction:column;align-items:center;justify-content:center;gap:8px;">
+  <div style="display:flex;align-items:center;justify-content:center;gap:16px;width:100%;flex-wrap:wrap">
+    <span>⚠️ <strong>Modo consulta: simulación guardada #<span id="querySimId">—</span> (sin recálculo)</strong> — Los parámetros, tablas y gráficos se cargan directamente desde SQLite sin reejecutar fórmulas.</span>
+    <button class="btn sm" style="background:#0b0d10;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:700" onclick="DB.exitQueryMode()">Volver al modo normal</button>
+  </div>
+  <div id="queryBannerNotice" style="display:none;background:#522800;color:#ffe8cc;padding:6px 14px;border-radius:4px;font-size:0.85rem;font-weight:normal;width:100%;text-align:center"></div>
 </div>
 
 <!-- ================= HERO ================= -->
