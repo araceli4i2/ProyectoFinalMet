@@ -102,11 +102,51 @@ const Mapper = (() => {
       .replace(/^_+|_+$/g, '');
   }
 
+  // Muestreo determinista para historiales iterativos extensos
+  // Preserva siempre la iteración inicial (k = 0) y la final (k = k_final)
+  function sampleIterations(hist, maxPoints = 500) {
+    if (!Array.isArray(hist) || hist.length === 0) return [];
+    const n = hist.length;
+    if (n <= maxPoints) {
+      return hist.map((resVal, idx) => ({
+        numero: idx,
+        aproximacion_json: '{}',
+        residual: sanitizeNumber(resVal),
+        error_abs: null,
+        error_rel: null
+      }));
+    }
+    const sampled = [];
+    for (let j = 0; j < maxPoints; j++) {
+      const idx = Math.round((j * (n - 1)) / (maxPoints - 1));
+      sampled.push({
+        numero: idx,
+        aproximacion_json: '{}',
+        residual: sanitizeNumber(hist[idx]),
+        error_abs: null,
+        error_rel: null
+      });
+    }
+    return sampled;
+  }
+
   // 4. Extractor genérico de ejecuciones para cualquier familia de métodos
   // Soporta: EDO, SISTEMAS_LINEALES, RAICES, ANALITICO, EDO_SISTEMA, INTERPOLACION
   function buildAllExecutions(results, params, scenKey) {
     const { r1, r2, r3, r4, ri } = results || {};
     const executions = [];
+    const getSYS = () => {
+      if (typeof results !== 'undefined' && results && results.SYS) return results.SYS;
+      if (typeof window !== 'undefined' && window.SYS) return window.SYS;
+      if (typeof globalThis !== 'undefined' && globalThis.SYS) return globalThis.SYS;
+      return null;
+    };
+    const getSolverRows = () => {
+      if (typeof results !== 'undefined' && results && results.solverRows) return results.solverRows;
+      if (typeof window !== 'undefined' && window.solverRows) return window.solverRows;
+      if (typeof globalThis !== 'undefined' && globalThis.solverRows) return globalThis.solverRows;
+      return null;
+    };
 
     // --- MÓDULO 1: Detención de emergencia (caso_id = 1) ---
     if (r1) {
@@ -183,28 +223,27 @@ const Mapper = (() => {
       }
 
       // 4 solucionadores del sistema auxiliar 4x4 SPD de M1
-      if (typeof window !== 'undefined' && window.SYS && window.SYS.m1 && typeof window.solverRows === 'function') {
-        const s1 = window.SYS.m1;
-        const rows1 = window.solverRows(s1.A, s1.b, s1.x, s1.tol, 50000, s1.norm || 'inf');
+      let rows1 = results.s1Rows;
+      const sysObj = getSYS();
+      const sRowsFn = getSolverRows();
+      if (!rows1 && sysObj && sysObj.m1 && typeof sRowsFn === 'function') {
+        const s1 = sysObj.m1;
+        rows1 = sRowsFn(s1.A, s1.b, s1.x, s1.tol, 50000, s1.norm || 'inf');
+      }
+      if (Array.isArray(rows1)) {
         rows1.forEach(q => {
           const estDb = toDbEstado(q.estado, true);
           executions.push({
             caso_id: 1,
             familia: 'SISTEMAS_LINEALES',
             metodo: q.nombre,
-            tolerancia: sanitizeNumber(s1.tol),
+            tolerancia: 1e-6,
             paso: null,
             max_iter: 50000,
             convergio: isConverged(estDb),
             estado: estDb,
             tiempo_ms: null,
-            iteraciones: (q.hist || []).map((resVal, idx) => ({
-              numero: idx,
-              aproximacion_json: '{}',
-              residual: sanitizeNumber(resVal),
-              error_abs: null,
-              error_rel: null
-            })),
+            iteraciones: sampleIterations(q.hist, 500),
             resumen: {
               referencia: 'x*=[2, 3, 2.5, 1.5]',
               valor_json: JSON.stringify({ iteraciones: q.k, residual: sanitizeNumber(q.res) }),
@@ -225,6 +264,14 @@ const Mapper = (() => {
       const p2 = r2.p || params.m2 || {};
       const st = r2.tStar;
 
+      const newtonIters = Array.isArray(r2.histN) ? r2.histN.map(it => ({
+        numero: it.numero,
+        aproximacion_json: JSON.stringify({ t: sanitizeNumber(it.t) }),
+        residual: sanitizeNumber(it.residual),
+        error_abs: sanitizeNumber(it.error_abs),
+        error_rel: safeRelError(it.error_abs, it.t)
+      })) : [];
+
       executions.push({
         caso_id: 2,
         familia: 'RAICES',
@@ -235,7 +282,7 @@ const Mapper = (() => {
         convergio: st != null,
         estado: st != null ? 'CONVERGIO' : 'NO_ALCANZO_TOL',
         tiempo_ms: null,
-        iteraciones: [],
+        iteraciones: newtonIters,
         resumen: {
           referencia: 'Vieta Estable',
           valor_json: JSON.stringify({
@@ -303,28 +350,25 @@ const Mapper = (() => {
 
       // 4 solucionadores del sistema 4x4 SPD de calibración activo de M2
       const m2Key = (scenKey === 'E') ? 'm2e' : (scenKey === 'MC' || scenKey === 'M') ? 'm2m' : 'm2n';
-      if (typeof window !== 'undefined' && window.SYS && window.SYS[m2Key] && typeof window.solverRows === 'function') {
-        const s2 = window.SYS[m2Key];
-        const rows2 = window.solverRows(s2.A, s2.b, s2.x, s2.tol, 50000, s2.norm || 'inf');
+      let rows2 = results.s2Rows;
+      if (!rows2 && sysObj && sysObj[m2Key] && typeof sRowsFn === 'function') {
+        const s2 = sysObj[m2Key];
+        rows2 = sRowsFn(s2.A, s2.b, s2.x, s2.tol, 50000, s2.norm || 'inf');
+      }
+      if (Array.isArray(rows2)) {
         rows2.forEach(q => {
           const estDb = toDbEstado(q.estado, true);
           executions.push({
             caso_id: 2,
             familia: 'SISTEMAS_LINEALES',
             metodo: q.nombre,
-            tolerancia: sanitizeNumber(s2.tol),
+            tolerancia: 1e-8,
             paso: null,
             max_iter: 50000,
             convergio: isConverged(estDb),
             estado: estDb,
             tiempo_ms: null,
-            iteraciones: (q.hist || []).slice(0, 100).map((resVal, idx) => ({
-              numero: idx,
-              aproximacion_json: '{}',
-              residual: sanitizeNumber(resVal),
-              error_abs: null,
-              error_rel: null
-            })),
+            iteraciones: sampleIterations(q.hist, 500),
             resumen: {
               referencia: `Calibración Módulo 2 (${m2Key})`,
               valor_json: JSON.stringify({ iteraciones: q.k, residual: sanitizeNumber(q.res) }),
@@ -376,9 +420,13 @@ const Mapper = (() => {
       });
 
       // 4 solucionadores del sistema normal 3x3 de calibración
-      if (r3.cal && typeof window !== 'undefined' && typeof window.solverRows === 'function') {
+      let rows3 = results.s3Rows;
+      if (!rows3 && r3.cal && typeof sRowsFn === 'function') {
         const c3 = r3.cal;
-        const rows3 = window.solverRows(c3.N, c3.bN, c3.sT, 1e-10, 50000, 'rel2');
+        rows3 = sRowsFn(c3.N, c3.bN, c3.sT, 1e-10, 50000, 'rel2');
+      }
+      if (Array.isArray(rows3)) {
+        const c3 = r3.cal || {};
         rows3.forEach(q => {
           const estDb = toDbEstado(q.estado, true);
           executions.push({
@@ -391,13 +439,7 @@ const Mapper = (() => {
             convergio: isConverged(estDb),
             estado: estDb,
             tiempo_ms: null,
-            iteraciones: (q.hist || []).slice(0, 100).map((resVal, idx) => ({
-              numero: idx,
-              aproximacion_json: '{}',
-              residual: sanitizeNumber(resVal),
-              error_abs: null,
-              error_rel: null
-            })),
+            iteraciones: sampleIterations(q.hist, 500),
             resumen: {
               referencia: 'Parámetros estructurales nominales',
               valor_json: JSON.stringify({ iteraciones: q.k, residual: sanitizeNumber(q.res) }),
@@ -416,7 +458,8 @@ const Mapper = (() => {
     // --- MÓDULO 4: Sensores e interpolación (caso_id = 4) ---
     if (r4) {
       // 4 solucionadores lineales del ajuste por mínimos cuadrados
-      (r4.rows || []).forEach((q, idx) => {
+      const rows4 = results.s4Rows || r4.rows || [];
+      rows4.forEach((q, idx) => {
         const estDb = toDbEstado(q.estado, true);
         const sers = [
           { nombre: `M4_residual_${slug(q.nombre)}`, datos_json: JSON.stringify((q.hist || []).map((v, k) => ({ x: k, y: sanitizeNumber(v) }))) }
@@ -439,13 +482,7 @@ const Mapper = (() => {
           convergio: isConverged(estDb),
           estado: estDb,
           tiempo_ms: null,
-          iteraciones: (q.hist || []).slice(0, 100).map((resVal, idx) => ({
-            numero: idx,
-            aproximacion_json: '{}',
-            residual: sanitizeNumber(resVal),
-            error_abs: null,
-            error_rel: null
-          })),
+          iteraciones: sampleIterations(q.hist, 500),
           resumen: {
             referencia: 'Coeficientes teóricos x*',
             valor_json: JSON.stringify({ iteraciones: q.k, residual: sanitizeNumber(q.res), kappa2: sanitizeNumber(r4.kap) }),
@@ -624,6 +661,7 @@ const Mapper = (() => {
     isConverged,
     sanitizeNumber,
     safeRelError,
+    sampleIterations,
     buildAllExecutions,
     toContractV1,
     toContractV2,

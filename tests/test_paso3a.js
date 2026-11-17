@@ -283,6 +283,26 @@ async function runPaso3ATests() {
   assert(puntosGuardados[0].y === numExacto, 'El número en punto flotante no fue redondeado artificialmente');
   console.log(`   -> Preservación bit-exacta verificada: ${puntosGuardados[0].y} === ${numExacto}`);
 
+  // --- TEST 5: Política de muestreo de iteraciones (hasta 500) ---
+  console.log('\n6. Probando política de muestreo determinista de iteraciones...');
+  const histCorta = Array.from({ length: 25 }, (_, i) => 1 / (i + 1));
+  const itersCorta = Mapper.sampleIterations(histCorta, 500);
+  assert(itersCorta.length === 25, 'Historial corto (<= 500) debe conservarse íntegro al 100%');
+  assert(itersCorta[0].numero === 0 && itersCorta[24].numero === 24, 'Primer y último índice preservados en historial corto');
+
+  // Historial largo de 50001 iteraciones (e.g. Gauss-Seidel en M4 MC)
+  const histLarga = Array.from({ length: 50001 }, (_, i) => 1e-4 + i * 1e-7);
+  const itersLarga = Mapper.sampleIterations(histLarga, 500);
+  assert(itersLarga.length === 500, `Historial largo (> 500) debe muestrearse exactamente a 500 puntos (obtenido ${itersLarga.length})`);
+  assert(itersLarga[0].numero === 0, `Primera iteración (k=0) debe preservarse (obtenido ${itersLarga[0].numero})`);
+  assert(itersLarga[499].numero === 50000, `Última iteración (k=50000) debe preservarse (obtenido ${itersLarga[499].numero})`);
+  assert(itersLarga[0].residual === histLarga[0], 'Residual inicial exacto');
+  assert(itersLarga[499].residual === histLarga[50000], 'Residual final exacto');
+  for (let j = 1; j < itersLarga.length; j++) {
+    assert(itersLarga[j].numero > itersLarga[j - 1].numero, 'Índices muestreados deben ser estrictamente monótonos crecientes');
+  }
+  console.log('   -> Muestreo determinista a 500 puntos verificado (k=0 y k=50000 intactos).');
+
   console.log('\n✅ TODOS LOS TESTS DEL PASO 3A PASARON SATISFACTORIAMENTE.');
 }
 

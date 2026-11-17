@@ -296,12 +296,16 @@ function mod2(p) {
   const kRel = sens != null ? Du / tStar * sens : null;
   const f = t => D(t) - Du;
   const bis = bisect(f, 0, tmax);
-  let tN = null, itN = 0;
+  let tN = null, itN = 0, histN = [];
   if (tStar != null && tStar > 0) {
     let t = 0;
     for (itN = 1; itN <= 50; itN++) {
       const fp = a + 2 * b * t; if (fp === 0) break;
-      const tn = t - f(t) / fp; if (Math.abs(tn - t) < 1e-12) { t = tn; break; } t = tn;
+      const fVal = f(t);
+      const tn = t - fVal / fp;
+      histN.push({ numero: itN, t: tn, residual: Math.abs(f(tn)), error_abs: Math.abs(tn - t) });
+      if (Math.abs(tn - t) < 1e-12) { t = tn; break; }
+      t = tn;
     }
     tN = t;
   }
@@ -312,7 +316,7 @@ function mod2(p) {
     sweep.push({ x: dd, y: (dsc >= 0 && a + q > 0) ? 2 * dd / (a + q) : null });
   }
   return {
-    p, D, disc, tStar, tDir, sens, kRel, bis, tN, itN, estado, ts, sweep,
+    p, D, disc, tStar, tDir, sens, kRel, bis, tN, itN, histN, estado, ts, sweep,
     Dts: ts.map(D), fres: tStar != null ? f(tStar) : null,
     cancel: (tDir != null && tStar) ? Math.abs(tDir - tStar) / tStar : null
   };
@@ -946,6 +950,18 @@ function recalcAll() {
     p4.grado = Math.min(8, Math.max(1, Math.round(p4.grado)));
     p4.pts = Math.max(p4.grado + 2, Math.round(p4.pts));
     LAST = { r1: mod1(p1), r2: mod2(p2), r3: mod3(p3), r4: mod4(p4), ri: modInterp(pi) };
+    const escVal = (document.getElementById('scen') ? document.getElementById('scen').value : 'N') || 'N';
+    const m2Key = (escVal === 'E') ? 'm2e' : (escVal === 'MC' || escVal === 'M') ? 'm2m' : 'm2n';
+    const s1 = SYS.m1;
+    const s1Rows = solverRows(s1.A, s1.b, s1.x, s1.tol, 50000, s1.norm);
+    const s2 = SYS[m2Key] || SYS.m2n;
+    const s2Rows = solverRows(s2.A, s2.b, s2.x, s2.tol, 50000, s2.norm);
+    const s3Rows = (LAST.r3 && LAST.r3.cal) ? solverRows(LAST.r3.cal.N, LAST.r3.cal.bN, LAST.r3.cal.sT, 1e-10, 50000, 'rel2') : [];
+    const s4Rows = LAST.r4 ? LAST.r4.rows : [];
+    LAST.s1Rows = s1Rows;
+    LAST.s2Rows = s2Rows;
+    LAST.s3Rows = s3Rows;
+    LAST.s4Rows = s4Rows;
     window.LAST = LAST;
     renderKPIs();
     render1(LAST.r1);
@@ -1114,6 +1130,9 @@ document.addEventListener('DOMContentLoaded', () => {
   window.tbl = tbl;
   window.MODEL1 = MODEL1;
   window.LAT3 = LAT3;
+  window.SYS = SYS;
+  window.solverRows = solverRows;
+  window.PRE = PRE;
   window.renderKPIs = renderKPIs;
   window.render1 = render1;
   window.render2 = render2;
@@ -1121,3 +1140,14 @@ document.addEventListener('DOMContentLoaded', () => {
   window.render4 = render4;
   recalcAll();
 });
+
+if (typeof window !== 'undefined') {
+  window.SYS = SYS;
+  window.solverRows = solverRows;
+  window.PRE = PRE;
+  window.mod1 = mod1;
+  window.mod2 = mod2;
+  window.mod3 = mod3;
+  window.mod4 = mod4;
+  window.modInterp = modInterp;
+}

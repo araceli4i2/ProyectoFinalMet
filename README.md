@@ -204,6 +204,44 @@ Para desacoplar el motor de guardado de los módulos numéricos y permitir que f
 ### 5. Precisión Numérica Estricta (Unrounded JSON)
 - Las aproximaciones, residuos y series numéricas se serializan mediante `JSON.stringify` nativo **sin redondeo artificial ni truncamiento** (preservación completa en coma flotante IEEE 754 de 64 bits), asegurando bit-exactness al relanzar o auditar simulaciones.
 
+### 6. Política de Muestreo de Iteraciones (Series Extensas)
+- Para mantener la ligereza de la base de datos relacional y evitar congelamiento de la interfaz en navegadores ante algoritmos con historiales prolongados (como Gauss-Seidel en M4 Mal Condicionado con $50\,000$ iteraciones), se implementa una política de **muestreo determinista uniforme**:
+  - Si el historial de iteraciones contiene $N \le 500$ puntos, se almacena el **100% íntegro**.
+  - Si $N > 500$ puntos, se submuestrea a exactamente **500 puntos** aplicando la regla:
+    $$\text{idx}_j = \text{round}\left(\frac{j \cdot (N - 1)}{499}\right), \quad j = 0, 1, \dots, 499$$
+  - Se **garantiza la preservación estricta de la primera iteración ($k=0$, residuo inicial) y de la última ($k=k_{\text{final}}$, estado final de parada)**.
+  - Cada fila en `iteracion_resultado` conserva su índice de iteración real (`numero = idx`), preservando la escala temporal y la fidelidad analítica de la curva de convergencia.
+
+### 7. Recuento Esperado de Ejecuciones e Iteraciones (Escenario Normal)
+Al guardar la simulación interactiva completa desde la interfaz web, se registran **23 ejecuciones numéricas** y **1,444 filas de iteraciones**:
+
+| Módulo / Caso de Estudio | Método Numérico | Familia | Iteraciones ($k$) | Filas en `iteracion_resultado` | Series Gráficas |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **M1: Detención** | Runge-Kutta 4 | EDO | — | 0 | 2 |
+| | Heun (RK2) | EDO | — | 0 | 1 |
+| | LU (directo) | SISTEMAS_LINEALES | 1 | 0 | 1 |
+| | Jacobi | SISTEMAS_LINEALES | 19 | 20 | 1 |
+| | Gauss-Seidel | SISTEMAS_LINEALES | 11 | 12 | 1 |
+| | Gradiente conjugado | SISTEMAS_LINEALES | 4 | 5 | 1 |
+| **M2: Deterioro** | Newton-Raphson | RAICES | 6 | 6 | 2 |
+| | Bisección | RAICES | 45 | 0 | 0 |
+| | Fórmula Vieta Estable | ANALITICO | 1 | 0 | 0 |
+| | LU (directo) | SISTEMAS_LINEALES | 1 | 0 | 1 |
+| | Jacobi | SISTEMAS_LINEALES | 25 | 26 | 1 |
+| | Gauss-Seidel | SISTEMAS_LINEALES | 13 | 14 | 1 |
+| | Gradiente conjugado | SISTEMAS_LINEALES | 4 | 5 | 1 |
+| **M3: Viento** | RK4 Armónico | EDO_SISTEMA | — | 0 | 2 |
+| | LU (directo) | SISTEMAS_LINEALES | 1 | 0 | 1 |
+| | Jacobi | SISTEMAS_LINEALES | 449 | 450 | 1 |
+| | Gauss-Seidel | SISTEMAS_LINEALES | 1141 | 500 *(Muestreado)* | 1 |
+| | Gradiente conjugado | SISTEMAS_LINEALES | 3 | 4 | 1 |
+| **M4: Sensores** | LU (directo) | SISTEMAS_LINEALES | 1 | 0 | 3 |
+| | Jacobi | SISTEMAS_LINEALES | 279 | 280 | 1 |
+| | Gauss-Seidel | SISTEMAS_LINEALES | 116 | 117 | 1 |
+| | Gradiente conjugado | SISTEMAS_LINEALES | 4 | 5 | 1 |
+| | Spline Cúbico Natural | INTERPOLACION | — | 0 | 3 |
+| **TOTAL** | **23 ejecuciones** | — | — | **1,444 iteraciones** | **27 series** |
+
 ---
 
 ## 🛠️ Stack Tecnológico
