@@ -735,7 +735,7 @@ const Mapper = (() => {
           campo: 'total_iteraciones',
           orig: origIters.length,
           nuevo: newIters.length,
-          diff: Math.abs(origIters.length - newIters.length)
+          diff: null // Los conteos de iteraciones son metadatos y no entran en diferencia_max
         });
       }
 

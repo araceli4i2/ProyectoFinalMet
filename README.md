@@ -300,11 +300,11 @@ El sistema incorpora un motor de certificación de reproducibilidad matemática:
    Excluye variables de tiempo de ejecución no reproducibles (`tiempo_ms`).
 3. **Criterio de Certificación:**
    - Si $\Delta_{\max} \le \text{tol}$ (por defecto $10^{-9}$, configurable en la interfaz `#relaunchTol`), se asigna `coincide = 1` y estado `COMPLETADO`.
-   - Si $\Delta_{\max} > \text{tol}$, se asigna `coincide = 0` y estado `ERROR_VALIDACION`.
+   - Si $\Delta_{\max} > \text{tol}$, se asigna `coincide = 0` y estado `COMPLETADO` (o `DIVERGIO` si la corrida numérica diverge). El estado `ERROR_VALIDACION` queda reservado únicamente para parámetros de entrada físicamente inválidos.
 4. **Trazabilidad Visual en Historial:**
    - Si una simulación proviene de un relanzamiento, muestra `#ID ↳ #OrigenID`.
    - La insignia de validación (`✔ Coincide` o `✘ Difiere`) es interactiva: un clic abre el modal `#comparisonModal` con el desglose tabular de discrepancias ordenado de mayor a menor magnitud.
-   - Las 4 simulaciones de `seed.sql` emiten una advertencia clara al usuario ("simulación de ejemplo no generada por la aplicación; la comparación no es válida") previniendo falsos negativos.
+   - Las simulaciones del historial inicial se identifican como `usuario_equipo = 'EJEMPLO'`, permitiendo su relanzamiento y validación contra el motor numérico.
 
 ---
 
