@@ -1075,14 +1075,6 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
       throw new Error(`Simulación original #${origSimId} no encontrada.`);
     }
 
-    // Regla especial para simulaciones de seed.sql (no generadas por la aplicación)
-    if (origSim.simulacion.id <= 4 && (origSim.simulacion.usuario_equipo || '').includes('Equipo Métodos UMSA')) {
-      return {
-        isSeedWarning: true,
-        message: `La simulación #${origSimId} es una simulación de ejemplo no generada por la aplicación; la comparación no es válida.`
-      };
-    }
-
     // Recalcular ejecuciones con los parámetros guardados
     const newExecs = recomputeExecutions(origSim, customEngine);
 
@@ -1099,6 +1091,9 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
 
     // Registrar la nueva simulación en SQLite
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const hasDiverged = newExecs.some(e => e.estado === 'DIVERGIO');
+    const simEstado = hasDiverged ? 'DIVERGIO' : 'COMPLETADO';
+
     const saveRes = saveSimulationTransaction({
       escenario: {
         caso_id: origSim.escenario.caso_id,
@@ -1109,7 +1104,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
       simulacion: {
         fecha: now,
         usuario_equipo: 'SIMTELE-RISK / Relanzamiento validado',
-        estado: comp.coincide ? 'COMPLETADO' : 'ERROR_VALIDACION',
+        estado: simEstado,
         simulacion_origen_id: origSim.simulacion.id,
         coincide: comp.coincide ? 1 : 0,
         diferencia_max: comp.diferencia_max,
@@ -1146,10 +1141,6 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
 
     try {
       const res = await relaunchSimulation(simId, tol);
-      if (res.isSeedWarning) {
-        uiAlert('Aviso: ' + res.message);
-        return;
-      }
       const c = res.comparacion;
       const fmtExp = (n) => (n != null ? (Math.abs(n) < 1e-3 || Math.abs(n) >= 1e4 ? Number(n).toExponential(3) : Number(n).toFixed(6)) : '0.00');
       let msg = `Relanzamiento de simulación #${simId} finalizado.\n\n` +

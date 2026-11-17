@@ -51,16 +51,14 @@ async function runTestPaso3C() {
   };
 
   // =========================================================================
-  // TEST (e): Aviso para simulaciones de seed.sql (no generadas por la app)
+  // TEST (e): Verificación de simulaciones de ejemplo en seed.sql (EJEMPLO)
   // =========================================================================
-  console.log('1. Verificando regla de protección para simulaciones de seed.sql (#1 a #4)...');
-  const seedRelaunch = await DB.relaunchSimulation(1, 1e-9, db, engine);
-  assert(seedRelaunch.isSeedWarning === true, 'Debe devolver isSeedWarning = true para simulación de seed.sql');
-  assert(seedRelaunch.message.includes('simulación de ejemplo no generada por la aplicación'), 'Mensaje descriptivo claro');
-
-  const countAfterSeedTry = db.exec("SELECT COUNT(*) FROM simulacion;")[0].values[0][0];
-  assert(countAfterSeedTry === 4, `No debe insertar una simulación engañosa; count esperado 4, obtenido ${countAfterSeedTry}`);
-  console.log('   ✔ Simulación semilla rechazada con aviso claro sin contaminar la BD con coincide=0 engañoso.\n');
+  console.log('1. Verificando que las simulaciones de ejemplo en seed.sql están marcadas como EJEMPLO...');
+  const seedRows = db.exec("SELECT id, usuario_equipo FROM simulacion;")[0].values;
+  seedRows.forEach(r => {
+    assert(r[1] === 'EJEMPLO', `Simulación #${r[0]} debe tener usuario_equipo = 'EJEMPLO', obtenido: ${r[1]}`);
+  });
+  console.log('   ✔ Las 4 simulaciones de semilla están identificadas con usuario_equipo = \'EJEMPLO\'.\n');
 
   // =========================================================================
   // TEST (a): Relanzar módulo determinista (Módulo 1) -> coincide = 1, diff <= 1e-9
@@ -218,6 +216,15 @@ async function runTestPaso3C() {
   console.log(`   • Diferencia máxima calculada: ${compM2Neg.diferencia_max}`);
   console.log(`   • Coincide: ${compM2Neg.coincide}`);
 
+  console.log('\n   Top 5 mayores diferencias numéricas registradas en la prueba negativa:');
+  const sortedDiffs = (compM2Neg.detalles || [])
+    .filter(d => d.diff != null)
+    .sort((a, b) => b.diff - a.diff);
+  sortedDiffs.slice(0, 5).forEach((d, idx) => {
+    console.log(`     ${idx + 1}. [${d.ejecucion}] ${d.campo}: orig=${d.orig}, nuevo=${d.nuevo}, |Δ|=${d.diff}`);
+  });
+  console.log('');
+
   assert(compM2Neg.coincide === false, 'Debe fallar la coincidencia cuando los parámetros cambiaron');
   assert(compM2Neg.diferencia_max > 1e-9, `diferencia_max ${compM2Neg.diferencia_max} debe superar la tolerancia`);
 
@@ -227,8 +234,8 @@ async function runTestPaso3C() {
   assert(checkRowM2Neg[0] === 0, `coincide en SQLite debe ser 0, obtenido ${checkRowM2Neg[0]}`);
   assert(checkRowM2Neg[1] > 1e-9, `diferencia_max en SQLite debe ser > 1e-9, obtenido ${checkRowM2Neg[1]}`);
   assert(checkRowM2Neg[2] === origIdM2, `simulacion_origen_id debe ser ${origIdM2}`);
-  assert(checkRowM2Neg[3] === 'ERROR_VALIDACION', 'Estado debe ser ERROR_VALIDACION');
-  console.log('   ✔ Test (c) PASADO: Detección rigurosa de discrepancia con coincide = 0 y estado = ERROR_VALIDACION.\n');
+  assert(checkRowM2Neg[3] === 'COMPLETADO', `Estado debe ser COMPLETADO (no ERROR_VALIDACION), obtenido: ${checkRowM2Neg[3]}`);
+  console.log('   ✔ Test (c) PASADO: Detección rigurosa de discrepancia con coincide = 0 y estado = COMPLETADO.\n');
 
   // =========================================================================
   // TEST (d): Verificación de clave foránea e integridad de simulacion_origen_id
