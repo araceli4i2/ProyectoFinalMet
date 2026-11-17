@@ -102,6 +102,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
 (2, 'Módulo 2 · Deterioro mecánico', 'v1.0', 'Modelo de fatiga acumulada en cables tractores, leyes no lineales de desgaste, algoritmos de raíces (Bisección y Newton-Raphson), resolución de cancelación catastrófica mediante Vieta y sensibilidad dt*/dDu.'),
 (3, 'Módulo 3 · Oscilaciones por viento', 'v1.0', 'Dinámica pendular y aeroelástica de cabinas bajo ráfagas armónicas forzadas con amortiguamiento, verificación frente a umbral Alim = 0.50 m y calibración de parámetros estructurales 3×3 SPD.'),
 (4, 'Módulo 4 · Reconstrucción de sensores', 'v1.0', 'Reconstrucción de señales con ruido por mínimos cuadrados polinómicos, análisis de mal condicionamiento con base monomial, comparativa de solucionadores lineales (LU, Jacobi, Gauss-Seidel, Gradiente Conjugado) e interpolación (Lagrange, Newton, Splines).');
+PRAGMA user_version = 2;
 `;
 
   // Helper de IndexedDB
@@ -177,6 +178,17 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
         db = new SQL.Database(savedBinary);
         db.run('PRAGMA foreign_keys = ON;');
         console.log('Base de datos SQLite restaurada desde IndexedDB.');
+
+        // Comprobación de PRAGMA user_version para detectar base antigua (v1 < v2)
+        const verRes = db.exec('PRAGMA user_version;');
+        const currentVer = (verRes && verRes.length && verRes[0].values.length) ? verRes[0].values[0][0] : 0;
+        if (currentVer < 2) {
+          console.warn(`Base de datos en versión ${currentVer} (< 2). Se sugiere actualizar ejemplos.`);
+          if (typeof document !== 'undefined') {
+            const upBanner = document.getElementById('dbUpgradeBanner');
+            if (upBanner) upBanner.style.display = 'flex';
+          }
+        }
       } else {
         db = new SQL.Database();
         db.run('PRAGMA foreign_keys = ON;');
@@ -267,6 +279,66 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     await persist();
     renderHistory();
     uiAlert('Base de datos restablecida a los valores iniciales de fábrica.');
+  }
+
+  // Actualizar datos de ejemplo a la versión v2 conservando intactas las simulaciones de usuario
+  async function upgradeExamples(customDb) {
+    const activeDb = customDb || db;
+    if (!activeDb) { uiAlert('Base de datos no inicializada.'); return false; }
+
+    try {
+      activeDb.run('BEGIN TRANSACTION;');
+
+      // 1. Eliminar únicamente simulaciones de ejemplo (CASCADE elimina ejecuciones, iteraciones, resúmenes y series)
+      activeDb.run("DELETE FROM simulacion WHERE usuario_equipo = 'EJEMPLO';");
+
+      // 2. Limpiar escenarios huérfanos que no pertenezcan ni a simulaciones de usuario ni al catálogo base (1..12)
+      activeDb.run(`
+        DELETE FROM escenario
+        WHERE id NOT IN (SELECT DISTINCT escenario_id FROM simulacion)
+          AND id NOT IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+      `);
+
+      // 3. Cargar y ejecutar seed.sql nuevo
+      let seedSql = '';
+      if (typeof fetch === 'function') {
+        seedSql = await loadSqlScript('db/seed.sql', '');
+      }
+      if (!seedSql && typeof require !== 'undefined') {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const p = path.resolve(__dirname, '../db/seed.sql');
+          if (fs.existsSync(p)) seedSql = fs.readFileSync(p, 'utf8');
+        } catch (e) {}
+      }
+
+      if (seedSql) {
+        activeDb.run(seedSql);
+      }
+
+      // 4. Actualizar PRAGMA user_version a 2
+      activeDb.run('PRAGMA user_version = 2;');
+      activeDb.run('COMMIT;');
+
+      if (!customDb && typeof persist === 'function') {
+        await persist();
+      }
+
+      if (typeof document !== 'undefined') {
+        const upBanner = document.getElementById('dbUpgradeBanner');
+        if (upBanner) upBanner.style.display = 'none';
+        renderHistory();
+      }
+
+      uiAlert('Datos de ejemplo actualizados a la versión 2. Tus simulaciones personales fueron conservadas intactas.');
+      return true;
+    } catch (e) {
+      try { activeDb.run('ROLLBACK;'); } catch (rb) {}
+      console.error('Error al actualizar datos de ejemplo:', e);
+      uiAlert('Error al actualizar ejemplos: ' + e.message);
+      return false;
+    }
   }
 
   // Helper determinista para ordenación de claves de objetos (evita discrepancias por orden)
@@ -1409,6 +1481,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     downloadDB,
     loadDB,
     resetToSeed,
+    upgradeExamples,
     saveSimulationTransaction,
     saveSimulation,
     saveCurrentSimulation,

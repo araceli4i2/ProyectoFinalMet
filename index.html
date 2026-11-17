@@ -120,6 +120,13 @@
         <label class="btn ghost" style="cursor:pointer">⬆ Cargar base (.db)<input type="file" id="dbFileInput" accept=".db,.sqlite,.sqlite3" style="display:none" onchange="DB.loadDB(this.files[0])"></label>
         <button class="btn ghost" style="color:#ffa53d;border-color:rgba(255,165,61,0.4)" onclick="DB.resetToSeed()">🔄 Restaurar seed.sql</button>
       </div>
+      <div id="dbUpgradeBanner" style="display:none;margin-top:14px;padding:12px 16px;background:rgba(255,165,61,0.12);border:1px solid rgba(255,165,61,0.4);border-radius:6px;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <strong style="color:#ffa53d">⚠️ Base de datos anterior detectada (v1):</strong>
+          <span style="font-size:0.85rem;color:inherit;margin-left:6px">Hay nuevos datos de ejemplo reales (v2) disponibles. Puedes actualizarlos sin perder tus simulaciones personales guardadas.</span>
+        </div>
+        <button class="btn sm" style="background:#ffa53d;color:#111;font-weight:600;border:none" onclick="DB.upgradeExamples()">Actualizar ejemplos</button>
+      </div>
     </div>
   </div>
 

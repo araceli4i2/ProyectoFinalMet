@@ -281,7 +281,10 @@ ProyectoFinalMetodos/
 │   ├── test_paso3b.js      # Pruebas de apertura en modo consulta (solo lectura, sin recálculo)
 │   ├── test_counts.js      # Auditoría rigurosa de recuento de ejecuciones, iteraciones y series
 │   ├── test_paso3c.js      # Pruebas de relanzamiento y validación matemática contra SQLite
+│   ├── test_versioning.js  # Pruebas de versionado de BD (PRAGMA user_version) y migración limpia
 │   └── e2e_verify.js       # Verificación numérica e2e rigurosa de todos los módulos y escenarios
+├── tools/
+│   └── gen_seed.js         # Generador determinista de db/seed.sql con corridas reales del motor
 ├── vendor/
 │   └── sqljs/              # Binarios locales sql-wasm.js y sql-wasm.wasm (cero CDN)
 ├── index.html              # Interfaz unificada tipo Single-Page Application (SPA)
@@ -305,6 +308,18 @@ El sistema incorpora un motor de certificación de reproducibilidad matemática:
    - Si una simulación proviene de un relanzamiento, muestra `#ID ↳ #OrigenID`.
    - La insignia de validación (`✔ Coincide` o `✘ Difiere`) es interactiva: un clic abre el modal `#comparisonModal` con el desglose tabular de discrepancias ordenado de mayor a menor magnitud.
    - Las simulaciones del historial inicial se identifican como `usuario_equipo = 'EJEMPLO'`, permitiendo su relanzamiento y validación contra el motor numérico.
+
+---
+
+### Datos Semilla Reales y Versionado de la Base (Paso 3D)
+
+- **Generador Determinista (`tools/gen_seed.js`)**: Ejecuta el motor numérico real de la aplicación en un entorno headless y genera `db/seed.sql` con fechas fijas y hashes reproducibles.
+  * Versión 4 Simulaciones (Normales): **338.90 KB (0.33 MB)**.
+  * Versión 12 Simulaciones (Normal, Estrés, MC): **3.77 MB**.
+- **Versionado (`PRAGMA user_version = 2`)**:
+  * Detecta bases de datos v1 antiguas persistidas en el `IndexedDB` del navegador.
+  * Muestra el banner interactivo `#dbUpgradeBanner` con el botón *"Actualizar ejemplos"*.
+  * Función `DB.upgradeExamples()`: elimina únicamente las simulaciones con `usuario_equipo = 'EJEMPLO'` y escenarios huérfanos, inserta los datos de ejemplo del nuevo seed mediante enlaces dinámicos `(SELECT MAX(id) FROM ...)` y **conserva intactas** todas las simulaciones personales guardadas por el usuario.
 
 ---
 
