@@ -571,9 +571,12 @@ PRAGMA user_version = 2;
         mi: typeof window.readForm === 'function' ? window.readForm('mi') : {}
       };
 
-      let allExecutions = [];
-      if (typeof window.Mapper !== 'undefined' && typeof window.Mapper.buildAllExecutions === 'function') {
-        allExecutions = window.Mapper.buildAllExecutions(window.LAST, params, escCode);
+      if (typeof window.Mapper === 'undefined' || typeof window.Mapper.buildAllExecutions !== 'function') {
+        throw new Error('Mapper no está cargado (window.Mapper indefinido). Revisa que js/mapper.js se cargue antes que js/db.js y que exponga window.Mapper.');
+      }
+      const allExecutions = window.Mapper.buildAllExecutions(window.LAST, params, escCode);
+      if (!allExecutions || !allExecutions.length) {
+        throw new Error('buildAllExecutions devolvió 0 ejecuciones: no hay nada que guardar.');
       }
 
       const casesMap = {
@@ -620,6 +623,8 @@ PRAGMA user_version = 2;
         totalSims++;
         totalEjecs += res.ejecuciones_guardadas;
       }
+
+      if (totalSims === 0) throw new Error('No se guardó ninguna simulación.');
 
       // Persistencia en IndexedDB ÚNICAMENTE después de confirmar todos los commits
       await persist();

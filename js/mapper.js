@@ -925,3 +925,9 @@ const Mapper = (() => {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Mapper;
 }
+if (typeof window !== 'undefined') {
+  window.Mapper = Mapper;
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.Mapper = Mapper;
+}
