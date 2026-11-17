@@ -1154,6 +1154,8 @@ if (typeof window !== 'undefined') {
   window.SYS = SYS;
   window.solverRows = solverRows;
   window.PRE = PRE;
+  window.readForm = readForm;
+  window.LAST = LAST;
   window.mod1 = mod1;
   window.mod2 = mod2;
   window.mod3 = mod3;
