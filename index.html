@@ -124,8 +124,16 @@
   </div>
 
   <div class="card mt">
-    <h3>Historial de simulaciones en SQLite</h3>
-    <p class="sub">Registro histórico persistente en base de datos relacional. Haz clic en "Cargar" para restaurar una simulación en la interfaz.</p>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:8px">
+      <div>
+        <h3 style="margin-bottom:4px">Historial de simulaciones en SQLite</h3>
+        <p class="sub" style="margin-bottom:0">Registro histórico persistente en base de datos relacional. Usa "Abrir" para consultar o "Relanzar" para validar numéricamente.</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem">
+        <label for="relaunchTol" style="font-weight:600;color:var(--text-muted, #aaa)">Tol. Comparación:</label>
+        <input type="number" id="relaunchTol" value="1e-9" step="1e-10" min="1e-15" max="1" style="width:110px;padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:inherit;font-family:monospace;font-size:0.85rem" title="Tolerancia absoluta máxima permitida para certificar coincidencia numérica">
+      </div>
+    </div>
     <div class="tw mt" id="tHistorial">
       <p class="note">Cargando historial desde SQLite...</p>
     </div>
@@ -414,6 +422,22 @@
   </div>
   <div class="conclusion mt" id="concl"></div>
 </div></section>
+
+<!-- Modal de Detalle de Comparación Numérica (Paso 3C) -->
+<div id="comparisonModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)">
+  <div style="background:#161b22;border:1px solid rgba(255,255,255,0.15);border-radius:8px;max-width:920px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 12px 36px rgba(0,0,0,0.5)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.1)">
+      <h3 id="compModalTitle" style="margin:0;font-size:1.15rem">Detalle de Validación Numérica</h3>
+      <button class="btn ghost sm" onclick="DB.closeComparisonModal()" style="font-size:1.2rem;line-height:1;padding:2px 8px;border:none">&times;</button>
+    </div>
+    <div id="compModalContent" style="padding:20px;overflow-y:auto;flex:1">
+      <!-- Contenido generado dinámicamente por DB.showComparisonDetail -->
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid rgba(255,255,255,0.1);display:flex;justify-content:flex-end">
+      <button class="btn primary sm" onclick="DB.closeComparisonModal()">Cerrar</button>
+    </div>
+  </div>
+</div>
 
 <footer><div class="wrap">
   <div>SIMTELE-RISK · Modelación matemática · Heun (RK2) y Runge-Kutta 4 · Sistemas lineales SPD · Chart.js</div>

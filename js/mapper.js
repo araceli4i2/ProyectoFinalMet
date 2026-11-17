@@ -667,6 +667,233 @@ const Mapper = (() => {
     };
   }
 
+  /**
+   * 8. Comparador Matemático de Simulaciones (Paso 3C: Relanzar y Comparar)
+   * diferencia_max = máxima diferencia absoluta entre:
+   * - valores de resultado_resumen (valor_json y metrica_error_json)
+   * - residuales, errores y aproximaciones de iteracion_resultado (solo índices "numero" existentes en ambos)
+   * - coordenadas y ordenadas de serie_grafico
+   * Excluye tiempo_ms.
+   * Verifica por separado que el estado y el total de iteraciones sean idénticos.
+   * Si una ejecución falta o difiere en lista, lo reporta sin fallar.
+   */
+  function compareExecutions(origExecutions, newExecutions, tol = 1e-9) {
+    let maxDiff = 0.0;
+    const detalles = [];
+    const mismatchedMeta = [];
+    const unmatchedOrig = [];
+    const unmatchedNew = [];
+
+    const newMap = new Map();
+    (newExecutions || []).forEach(e => newMap.set(e.metodo, e));
+    const matchedNewNames = new Set();
+
+    (origExecutions || []).forEach(origEj => {
+      const newEj = newMap.get(origEj.metodo);
+      if (!newEj) {
+        unmatchedOrig.push(origEj.metodo);
+        detalles.push({
+          ejecucion: origEj.metodo,
+          campo: 'ejecucion_faltante',
+          orig: 'presente en BD original',
+          nuevo: 'ausente en recálculo',
+          diff: null
+        });
+        return;
+      }
+      matchedNewNames.add(origEj.metodo);
+
+      // 1. Comparación de metadatos estrictos: estado, convergio, total de iteraciones
+      if (origEj.estado !== newEj.estado) {
+        mismatchedMeta.push(`${origEj.metodo}: estado disconforme (orig=${origEj.estado}, nuevo=${newEj.estado})`);
+        detalles.push({
+          ejecucion: origEj.metodo,
+          campo: 'estado',
+          orig: origEj.estado,
+          nuevo: newEj.estado,
+          diff: null
+        });
+      }
+
+      if (Boolean(origEj.convergio) !== Boolean(newEj.convergio)) {
+        mismatchedMeta.push(`${origEj.metodo}: convergencia booleana disconforme`);
+        detalles.push({
+          ejecucion: origEj.metodo,
+          campo: 'convergio',
+          orig: origEj.convergio,
+          nuevo: newEj.convergio,
+          diff: null
+        });
+      }
+
+      const origIters = Array.isArray(origEj.iteraciones) ? origEj.iteraciones : [];
+      const newIters = Array.isArray(newEj.iteraciones) ? newEj.iteraciones : [];
+      if (origIters.length !== newIters.length) {
+        mismatchedMeta.push(`${origEj.metodo}: recuento de iteraciones disconforme (orig=${origIters.length}, nuevo=${newIters.length})`);
+        detalles.push({
+          ejecucion: origEj.metodo,
+          campo: 'total_iteraciones',
+          orig: origIters.length,
+          nuevo: newIters.length,
+          diff: Math.abs(origIters.length - newIters.length)
+        });
+      }
+
+      // 2. Comparación de resultado_resumen (valor_json y metrica_error_json)
+      const compareJsonNumbers = (jsonA, jsonB, prefix) => {
+        let objA = {}, objB = {};
+        try { objA = typeof jsonA === 'string' ? JSON.parse(jsonA) : (jsonA || {}); } catch (e) {}
+        try { objB = typeof jsonB === 'string' ? JSON.parse(jsonB) : (jsonB || {}); } catch (e) {}
+        const allKeys = new Set([...Object.keys(objA), ...Object.keys(objB)]);
+        allKeys.forEach(k => {
+          const vA = objA[k], vB = objB[k];
+          if (typeof vA === 'number' && typeof vB === 'number') {
+            const diff = Math.abs(vA - vB);
+            if (diff > maxDiff) maxDiff = diff;
+            detalles.push({
+              ejecucion: origEj.metodo,
+              campo: `${prefix}.${k}`,
+              orig: vA,
+              nuevo: vB,
+              diff
+            });
+          } else if (typeof vA === 'boolean' && typeof vB === 'boolean') {
+            if (vA !== vB) {
+              mismatchedMeta.push(`${origEj.metodo}: ${prefix}.${k} booleano disconforme`);
+              detalles.push({
+                ejecucion: origEj.metodo,
+                campo: `${prefix}.${k}`,
+                orig: vA,
+                nuevo: vB,
+                diff: 1.0
+              });
+            }
+          }
+        });
+      };
+
+      if (origEj.resumen || newEj.resumen) {
+        const rOrig = origEj.resumen || {};
+        const rNew = newEj.resumen || {};
+        compareJsonNumbers(rOrig.valor_json, rNew.valor_json, 'resumen.valor');
+        compareJsonNumbers(rOrig.metrica_error_json, rNew.metrica_error_json, 'resumen.error');
+      }
+
+      // 3. Comparación de iteraciones: solo índices "numero" existentes en ambos lados
+      const origItMap = new Map();
+      origIters.forEach(it => origItMap.set(it.numero, it));
+      newIters.forEach(itNew => {
+        const itOrig = origItMap.get(itNew.numero);
+        if (!itOrig) return; // solo comparar si existe en ambos lados (por el muestreo a 500)
+
+        // residual
+        if (itOrig.residual != null && itNew.residual != null) {
+          const diff = Math.abs(itOrig.residual - itNew.residual);
+          if (diff > maxDiff) maxDiff = diff;
+          if (diff > tol) {
+            detalles.push({
+              ejecucion: origEj.metodo,
+              campo: `iter[${itNew.numero}].residual`,
+              orig: itOrig.residual,
+              nuevo: itNew.residual,
+              diff
+            });
+          }
+        }
+        // error_abs
+        if (itOrig.error_abs != null && itNew.error_abs != null) {
+          const diff = Math.abs(itOrig.error_abs - itNew.error_abs);
+          if (diff > maxDiff) maxDiff = diff;
+          if (diff > tol) {
+            detalles.push({
+              ejecucion: origEj.metodo,
+              campo: `iter[${itNew.numero}].error_abs`,
+              orig: itOrig.error_abs,
+              nuevo: itNew.error_abs,
+              diff
+            });
+          }
+        }
+        // error_rel
+        if (itOrig.error_rel != null && itNew.error_rel != null) {
+          const diff = Math.abs(itOrig.error_rel - itNew.error_rel);
+          if (diff > maxDiff) maxDiff = diff;
+          if (diff > tol) {
+            detalles.push({
+              ejecucion: origEj.metodo,
+              campo: `iter[${itNew.numero}].error_rel`,
+              orig: itOrig.error_rel,
+              nuevo: itNew.error_rel,
+              diff
+            });
+          }
+        }
+        // aproximacion_json
+        if (itOrig.aproximacion_json && itNew.aproximacion_json) {
+          compareJsonNumbers(itOrig.aproximacion_json, itNew.aproximacion_json, `iter[${itNew.numero}].aprox`);
+        }
+      });
+
+      // 4. Comparación de series de gráficos
+      const origSeriesMap = new Map();
+      (origEj.series || []).forEach(s => origSeriesMap.set(s.nombre, s));
+      (newEj.series || []).forEach(sNew => {
+        const sOrig = origSeriesMap.get(sNew.nombre);
+        if (!sOrig) return;
+
+        let ptsOrig = [], ptsNew = [];
+        try { ptsOrig = typeof sOrig.datos_json === 'string' ? JSON.parse(sOrig.datos_json) : (sOrig.puntos || []); } catch (e) {}
+        try { ptsNew = typeof sNew.datos_json === 'string' ? JSON.parse(sNew.datos_json) : (sNew.puntos || []); } catch (e) {}
+
+        const minLen = Math.min(ptsOrig.length, ptsNew.length);
+        for (let i = 0; i < minLen; i++) {
+          const po = ptsOrig[i], pn = ptsNew[i];
+          if (po && pn) {
+            if (po.x != null && pn.x != null) {
+              const dx = Math.abs(po.x - pn.x);
+              if (dx > maxDiff) maxDiff = dx;
+            }
+            if (po.y != null && pn.y != null) {
+              const dy = Math.abs(po.y - pn.y);
+              if (dy > maxDiff) maxDiff = dy;
+              if (dy > tol) {
+                detalles.push({
+                  ejecucion: origEj.metodo,
+                  campo: `serie[${sOrig.nombre}][${i}].y`,
+                  orig: po.y,
+                  nuevo: pn.y,
+                  diff: dy
+                });
+              }
+            }
+          }
+        }
+      });
+    });
+
+    (newExecutions || []).forEach(newEj => {
+      if (!matchedNewNames.has(newEj.metodo)) {
+        unmatchedNew.push(newEj.metodo);
+      }
+    });
+
+    const coincide = (
+      maxDiff <= tol &&
+      mismatchedMeta.length === 0 &&
+      unmatchedOrig.length === 0
+    );
+
+    return {
+      coincide,
+      diferencia_max: maxDiff,
+      tol_comparacion: tol,
+      detalles,
+      unmatchedOrig,
+      unmatchedNew,
+      mismatchedMeta
+    };
+  }
+
   return {
     toDbEscenario,
     toUiEscenario,
@@ -677,6 +904,7 @@ const Mapper = (() => {
     safeRelError,
     sampleIterations,
     buildAllExecutions,
+    compareExecutions,
     toContractV1,
     toContractV2,
     parseContract,

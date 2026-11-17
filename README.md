@@ -280,12 +280,31 @@ ProyectoFinalMetodos/
 │   ├── test_paso3a.js      # Pruebas de guardado transaccional, rollback y escenarios inmutables
 │   ├── test_paso3b.js      # Pruebas de apertura en modo consulta (solo lectura, sin recálculo)
 │   ├── test_counts.js      # Auditoría rigurosa de recuento de ejecuciones, iteraciones y series
+│   ├── test_paso3c.js      # Pruebas de relanzamiento y validación matemática contra SQLite
 │   └── e2e_verify.js       # Verificación numérica e2e rigurosa de todos los módulos y escenarios
 ├── vendor/
 │   └── sqljs/              # Binarios locales sql-wasm.js y sql-wasm.wasm (cero CDN)
 ├── index.html              # Interfaz unificada tipo Single-Page Application (SPA)
 └── README.md               # Documentación ejecutiva del proyecto
 ```
+
+---
+
+### Validación y Relanzamiento de Simulaciones (Paso 3C)
+
+El sistema incorpora un motor de certificación de reproducibilidad matemática:
+
+1. **Relanzamiento Asíncrono contra la Base**: El botón **"Relanzar"** lee `parametros_json` desde SQLite (incluyendo la semilla estocástica `seed`), reejecuta los algoritmos del motor numérico y compara matemáticamente el nuevo cálculo contra los resultados originales guardados en SQLite (`simulacion_origen_id`).
+2. **Métrica de Discrepancia Máxima ($|\Delta_{\max}|$):**
+   $$\Delta_{\max} = \max \left( |v_{\text{resumen}} - v_{\text{nuevo}}|, |\text{err}_{\text{orig}} - \text{err}_{\text{nuevo}}|, |r_{\text{iter}} - r_{\text{nuevo}}|, |y_{\text{serie}} - y_{\text{nuevo}}| \right)$$
+   Excluye variables de tiempo de ejecución no reproducibles (`tiempo_ms`).
+3. **Criterio de Certificación:**
+   - Si $\Delta_{\max} \le \text{tol}$ (por defecto $10^{-9}$, configurable en la interfaz `#relaunchTol`), se asigna `coincide = 1` y estado `COMPLETADO`.
+   - Si $\Delta_{\max} > \text{tol}$, se asigna `coincide = 0` y estado `ERROR_VALIDACION`.
+4. **Trazabilidad Visual en Historial:**
+   - Si una simulación proviene de un relanzamiento, muestra `#ID ↳ #OrigenID`.
+   - La insignia de validación (`✔ Coincide` o `✘ Difiere`) es interactiva: un clic abre el modal `#comparisonModal` con el desglose tabular de discrepancias ordenado de mayor a menor magnitud.
+   - Las 4 simulaciones de `seed.sql` emiten una advertencia clara al usuario ("simulación de ejemplo no generada por la aplicación; la comparación no es válida") previniendo falsos negativos.
 
 ---
 

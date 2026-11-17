@@ -772,14 +772,15 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     }
   }
 
-  // Abrir y cargar simulación desde la base de datos a la interfaz (sin recálculo)
-  function loadSimulation(simId, customDb) {
+  // Lee una simulación completa directamente de la base de datos sin alterar la interfaz gráfica
+  function readSimulationFromDB(simId, customDb) {
     const activeDb = customDb || db;
-    if (!activeDb) { uiAlert('Base de datos no inicializada.'); return null; }
+    if (!activeDb) return null;
 
     try {
       const simQuery = activeDb.exec(`
-        SELECT s.id, s.fecha, s.usuario_equipo, s.estado, s.coincide, s.diferencia_max, s.tol_comparacion,
+        SELECT s.id, s.fecha, s.usuario_equipo, s.estado, s.simulacion_origen_id,
+               s.coincide, s.diferencia_max, s.tol_comparacion,
                e.id AS escenario_id, e.caso_id, e.tipo AS escenario_tipo, e.parametros_json, e.fuente_datos,
                c.nombre AS caso_nombre
         FROM simulacion s
@@ -789,7 +790,6 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
       `);
 
       if (!simQuery || !simQuery.length || !simQuery[0].values.length) {
-        uiAlert(`Simulación #${simId} no encontrada en la base de datos.`);
         return null;
       }
 
@@ -800,18 +800,19 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
           fecha: r[1],
           usuario_equipo: r[2],
           estado: r[3],
-          coincide: r[4],
-          diferencia_max: r[5],
-          tol_comparacion: r[6]
+          simulacion_origen_id: r[4],
+          coincide: r[5],
+          diferencia_max: r[6],
+          tol_comparacion: r[7]
         },
         escenario: {
-          id: r[7],
-          caso_id: r[8],
-          tipo: r[9],
-          parametros_json: r[10],
-          parametros: JSON.parse(r[10] || '{}'),
-          fuente_datos: r[11],
-          caso_nombre: r[12]
+          id: r[8],
+          caso_id: r[9],
+          tipo: r[10],
+          parametros_json: r[11],
+          parametros: JSON.parse(r[11] || '{}'),
+          fuente_datos: r[12],
+          caso_nombre: r[13]
         },
         ejecuciones: []
       };
@@ -890,6 +891,25 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
         }
       }
 
+      return loaded;
+    } catch (e) {
+      console.error('Error leyendo simulación de BD:', e);
+      return null;
+    }
+  }
+
+  // Abrir y cargar simulación desde la base de datos a la interfaz (sin recálculo)
+  function loadSimulation(simId, customDb) {
+    const activeDb = customDb || db;
+    if (!activeDb) { uiAlert('Base de datos no inicializada.'); return null; }
+
+    try {
+      const loaded = readSimulationFromDB(simId, activeDb);
+      if (!loaded) {
+        uiAlert(`Simulación #${simId} no encontrada en la base de datos.`);
+        return null;
+      }
+
       lastLoadedSimulation = loaded;
 
       // Activar bandera de modo consulta
@@ -944,6 +964,351 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     }
   }
 
+  /**
+   * Recalcula las ejecuciones numéricas para una simulación dada a partir de sus parámetros guardados.
+   * Utiliza las funciones del motor numérico y Mapper.buildAllExecutions.
+   */
+  function recomputeExecutions(origSim, customEngine) {
+    if (!origSim || !origSim.escenario) {
+      throw new Error('No se proporcionó la información del escenario original para relanzar.');
+    }
+    const env = customEngine || (typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : {}));
+    const mod1 = env.mod1;
+    const mod2 = env.mod2;
+    const mod3 = env.mod3;
+    const mod4 = env.mod4;
+    const modInterp = env.modInterp;
+    const solverRows = env.solverRows;
+    const SYS = env.SYS;
+    const MapperMod = (typeof window !== 'undefined' && window.Mapper)
+      ? window.Mapper
+      : (typeof Mapper !== 'undefined' ? Mapper : (typeof require !== 'undefined' ? require('./mapper.js') : null));
+
+    if (!MapperMod || typeof MapperMod.buildAllExecutions !== 'function') {
+      throw new Error('Mapper.buildAllExecutions no disponible en el entorno.');
+    }
+
+    const cId = origSim.escenario.caso_id;
+    const p = origSim.escenario.parametros || {};
+    const scenTipo = origSim.escenario.tipo || 'NORMAL';
+    const scenCode = (MapperMod.toUiEscenario)
+      ? MapperMod.toUiEscenario(scenTipo)
+      : (scenTipo === 'ESTRES' ? 'E' : scenTipo === 'MAL_CONDICIONADO' ? 'MC' : 'N');
+
+    const LAST = { SYS, solverRows };
+    const paramsMap = { m1: {}, m2: {}, m3: {}, m4: {}, mi: {} };
+
+    // Identificar qué casos deben recalcularse
+    const targetCases = new Set();
+    if (cId) targetCases.add(cId);
+    (origSim.ejecuciones || []).forEach(e => {
+      if (e.caso_id) targetCases.add(e.caso_id);
+    });
+    if (targetCases.size === 0) {
+      targetCases.add(1); targetCases.add(2); targetCases.add(3); targetCases.add(4);
+    }
+
+    if (targetCases.has(1) && typeof mod1 === 'function') {
+      const p1 = (p.v0 !== undefined || p.tau !== undefined) ? p : (p.m1 || p);
+      paramsMap.m1 = p1;
+      const r1 = mod1(p1);
+      const s1Rows = (SYS && SYS.m1 && typeof solverRows === 'function')
+        ? solverRows(SYS.m1.A, SYS.m1.b, SYS.m1.x, SYS.m1.tol, 50000, SYS.m1.norm)
+        : [];
+      LAST.r1 = r1;
+      LAST.s1Rows = s1Rows;
+    }
+
+    if (targetCases.has(2) && typeof mod2 === 'function') {
+      const p2 = (p.Du !== undefined || p.tol !== undefined) ? p : (p.m2 || p);
+      paramsMap.m2 = p2;
+      const r2 = mod2(p2);
+      const s2Rows = (SYS && SYS.m2n && typeof solverRows === 'function')
+        ? solverRows(SYS.m2n.A, SYS.m2n.b, SYS.m2n.x, SYS.m2n.tol, 50000, SYS.m2n.norm)
+        : [];
+      LAST.r2 = r2;
+      LAST.s2Rows = s2Rows;
+    }
+
+    if (targetCases.has(3) && typeof mod3 === 'function') {
+      const p3 = (p.omega !== undefined || p.zeta !== undefined || p.seed !== undefined) ? p : (p.m3 || p);
+      paramsMap.m3 = p3;
+      const r3 = mod3(p3);
+      const s3Rows = (r3 && r3.cal && typeof solverRows === 'function')
+        ? solverRows(r3.cal.N, r3.cal.bN, r3.cal.sT, 1e-10, 50000, 'rel2')
+        : [];
+      LAST.r3 = r3;
+      LAST.s3Rows = s3Rows;
+    }
+
+    if (targetCases.has(4) && typeof mod4 === 'function') {
+      const p4 = (p.N !== undefined || p.grado !== undefined) ? p : (p.m4 || p);
+      const pmi = p.mi || (env.PRE && env.PRE.N ? env.PRE.N.mi : (p.x_eval !== undefined ? p : {}));
+      paramsMap.m4 = p4;
+      paramsMap.mi = pmi;
+      const r4 = mod4(p4);
+      const ri = (typeof modInterp === 'function') ? modInterp(pmi) : null;
+      const s4Rows = (r4 && r4.rows) ? r4.rows : [];
+      LAST.r4 = r4;
+      LAST.ri = ri;
+      LAST.s4Rows = s4Rows;
+    }
+
+    const allExecs = MapperMod.buildAllExecutions(LAST, paramsMap, scenCode);
+    return allExecs.filter(e => targetCases.has(e.caso_id));
+  }
+
+  /**
+   * Paso 3C: Relanzar una simulación existente y compararla matemáticamente contra la BD.
+   * - Lee parametros_json de la simulación original (incluyendo la semilla).
+   * - Crea una simulación NUEVA con simulacion_origen_id = id de la original.
+   * - Recalcula con el motor actual y compara CONTRA LO LEÍDO DE LA BASE.
+   * - diferencia_max = máx diferencia absoluta entre resúmenes, residuales, errores, aproximaciones y series.
+   * - Guarda coincide (diferencia_max <= tol), diferencia_max y tol_comparacion.
+   */
+  async function relaunchSimulation(origSimId, tol = 1e-9, customDb, customEngine) {
+    const activeDb = customDb || db;
+    if (!activeDb) throw new Error('Base de datos SQLite no disponible.');
+
+    const origSim = readSimulationFromDB(origSimId, activeDb);
+    if (!origSim) {
+      throw new Error(`Simulación original #${origSimId} no encontrada.`);
+    }
+
+    // Regla especial para simulaciones de seed.sql (no generadas por la aplicación)
+    if (origSim.simulacion.id <= 4 && (origSim.simulacion.usuario_equipo || '').includes('Equipo Métodos UMSA')) {
+      return {
+        isSeedWarning: true,
+        message: `La simulación #${origSimId} es una simulación de ejemplo no generada por la aplicación; la comparación no es válida.`
+      };
+    }
+
+    // Recalcular ejecuciones con los parámetros guardados
+    const newExecs = recomputeExecutions(origSim, customEngine);
+
+    // Comparar contra lo LEÍDO DE LA BASE
+    const MapperMod = (typeof window !== 'undefined' && window.Mapper)
+      ? window.Mapper
+      : (typeof Mapper !== 'undefined' ? Mapper : (typeof require !== 'undefined' ? require('./mapper.js') : null));
+
+    if (!MapperMod || typeof MapperMod.compareExecutions !== 'function') {
+      throw new Error('Mapper.compareExecutions no disponible en el entorno.');
+    }
+
+    const comp = MapperMod.compareExecutions(origSim.ejecuciones, newExecs, tol);
+
+    // Registrar la nueva simulación en SQLite
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const saveRes = saveSimulationTransaction({
+      escenario: {
+        caso_id: origSim.escenario.caso_id,
+        tipo: origSim.escenario.tipo,
+        parametros_json: origSim.escenario.parametros_json,
+        fuente_datos: origSim.escenario.fuente_datos || 'SIMTELE-RISK / Ejecución interactiva'
+      },
+      simulacion: {
+        fecha: now,
+        usuario_equipo: 'SIMTELE-RISK / Relanzamiento validado',
+        estado: comp.coincide ? 'COMPLETADO' : 'ERROR_VALIDACION',
+        simulacion_origen_id: origSim.simulacion.id,
+        coincide: comp.coincide ? 1 : 0,
+        diferencia_max: comp.diferencia_max,
+        tol_comparacion: tol
+      },
+      ejecuciones: newExecs
+    }, activeDb);
+
+    if (!customDb && typeof persist === 'function') {
+      await persist();
+    }
+
+    if (typeof renderHistory === 'function' && typeof document !== 'undefined') {
+      renderHistory();
+    }
+
+    return {
+      success: true,
+      simulacion_id: saveRes.simulacion_id,
+      comparacion: comp,
+      origSimId: origSim.simulacion.id
+    };
+  }
+
+  // Interfaz de usuario para relanzar simulación
+  async function relaunchSimulationUI(simId) {
+    if (!db) { uiAlert('Base de datos no disponible'); return; }
+    const tolInput = (typeof document !== 'undefined') ? document.getElementById('relaunchTol') : null;
+    let tol = 1e-9;
+    if (tolInput && tolInput.value) {
+      const parsed = parseFloat(tolInput.value);
+      if (!isNaN(parsed) && parsed > 0) tol = parsed;
+    }
+
+    try {
+      const res = await relaunchSimulation(simId, tol);
+      if (res.isSeedWarning) {
+        uiAlert('Aviso: ' + res.message);
+        return;
+      }
+      const c = res.comparacion;
+      const fmtExp = (n) => (n != null ? (Math.abs(n) < 1e-3 || Math.abs(n) >= 1e4 ? Number(n).toExponential(3) : Number(n).toFixed(6)) : '0.00');
+      let msg = `Relanzamiento de simulación #${simId} finalizado.\n\n` +
+        `• Nueva simulación: #${res.simulacion_id} (↳ #${simId})\n` +
+        `• Tolerancia configurada: ${tol}\n` +
+        `• Diferencia máxima (|Δ|): ${fmtExp(c.diferencia_max)}\n` +
+        `• Resultado: ${c.coincide ? '✔ COINCIDE (dentro de tolerancia)' : '✘ DIFIERE (supera tolerancia)'}\n`;
+
+      if (c.unmatchedOrig && c.unmatchedOrig.length > 0) {
+        msg += `\n⚠ Ejecuciones originales no recalculables: ${c.unmatchedOrig.join(', ')}`;
+      }
+      if (c.unmatchedNew && c.unmatchedNew.length > 0) {
+        msg += `\n⚠ Ejecuciones nuevas no presentes en original: ${c.unmatchedNew.join(', ')}`;
+      }
+      uiAlert(msg);
+    } catch (err) {
+      console.error(err);
+      uiAlert('Error al relanzar la simulación: ' + err.message);
+    }
+  }
+
+  // Muestra el modal con la tabla detallada de diferencias por magnitud
+  function showComparisonDetail(simId, customDb) {
+    const activeDb = customDb || db;
+    if (!activeDb) return;
+
+    const current = readSimulationFromDB(simId, activeDb);
+    if (!current) {
+      uiAlert(`No se pudo leer la simulación #${simId}`);
+      return;
+    }
+
+    const origId = current.simulacion.simulacion_origen_id;
+    if (!origId) {
+      uiAlert(`La simulación #${simId} es original (no proviene del relanzamiento de otra simulación).`);
+      return;
+    }
+
+    const orig = readSimulationFromDB(origId, activeDb);
+    if (!orig) {
+      uiAlert(`No se encontró la simulación original #${origId} en la base de datos.`);
+      return;
+    }
+
+    const tol = current.simulacion.tol_comparacion || 1e-9;
+    const MapperMod = (typeof window !== 'undefined' && window.Mapper)
+      ? window.Mapper
+      : (typeof Mapper !== 'undefined' ? Mapper : (typeof require !== 'undefined' ? require('./mapper.js') : null));
+
+    if (!MapperMod || typeof MapperMod.compareExecutions !== 'function') {
+      uiAlert('Mapper.compareExecutions no disponible.');
+      return;
+    }
+
+    const comp = MapperMod.compareExecutions(orig.ejecuciones, current.ejecuciones, tol);
+
+    if (typeof document === 'undefined') return comp;
+
+    const modal = document.getElementById('comparisonModal');
+    const content = document.getElementById('compModalContent');
+    const title = document.getElementById('compModalTitle');
+    if (!modal || !content) return;
+
+    if (title) {
+      title.textContent = `Detalle de Validación · Simulación #${simId} ↳ #${origId}`;
+    }
+
+    const fmtNum = (n) => {
+      if (n == null) return '—';
+      if (typeof n === 'number') {
+        return (Math.abs(n) < 1e-4 || Math.abs(n) > 1e4) ? n.toExponential(4) : n.toFixed(6);
+      }
+      return String(n);
+    };
+
+    // Ordenar detalles por magnitud de diferencia descendente (mayor a menor)
+    const sortedDetalles = [...(comp.detalles || [])].sort((a, b) => {
+      const diffA = a.diff != null ? a.diff : -1;
+      const diffB = b.diff != null ? b.diff : -1;
+      return diffB - diffA;
+    });
+
+    let html = `
+      <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
+        <div class="kpi" style="padding:10px;flex:1;min-width:140px">
+          <div class="t">Resultado Global</div>
+          <div class="v">${comp.coincide ? '<span class="pill ok">✔ COINCIDE</span>' : '<span class="pill bad">✘ DIFIERE</span>'}</div>
+        </div>
+        <div class="kpi" style="padding:10px;flex:1;min-width:140px">
+          <div class="t">Diferencia Máxima |Δ|</div>
+          <div class="v" style="font-family:monospace">${fmtNum(comp.diferencia_max)}</div>
+        </div>
+        <div class="kpi" style="padding:10px;flex:1;min-width:140px">
+          <div class="t">Tolerancia Aplicada</div>
+          <div class="v" style="font-family:monospace">${fmtNum(tol)}</div>
+        </div>
+      </div>
+    `;
+
+    if (comp.unmatchedOrig && comp.unmatchedOrig.length > 0) {
+      html += `<p class="note" style="color:#ffa53d">⚠ Ejecuciones en BD original no recalculadas: ${comp.unmatchedOrig.join(', ')}</p>`;
+    }
+    if (comp.unmatchedNew && comp.unmatchedNew.length > 0) {
+      html += `<p class="note" style="color:#ffa53d">⚠ Ejecuciones recalculadas ausentes en BD original: ${comp.unmatchedNew.join(', ')}</p>`;
+    }
+    if (comp.mismatchedMeta && comp.mismatchedMeta.length > 0) {
+      html += `<p class="note" style="color:#ff5c5c">✘ Discrepancias de estado o total de iteraciones: ${comp.mismatchedMeta.join(' | ')}</p>`;
+    }
+
+    if (sortedDetalles.length === 0) {
+      html += `<p class="note" style="color:#7ee787">✔ Identidad numérica exacta en todas las variables y puntos comparados (|Δ| = 0).</p>`;
+    } else {
+      html += `
+        <table class="tbl" style="width:100%;font-size:0.8rem">
+          <thead>
+            <tr>
+              <th>Ejecución / Método</th>
+              <th>Variable / Campo</th>
+              <th style="text-align:right">Valor Original (BD)</th>
+              <th style="text-align:right">Valor Relanzado</th>
+              <th style="text-align:right">Diferencia |Δ|</th>
+              <th style="text-align:center">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedDetalles.slice(0, 100).map(d => {
+              const isOver = d.diff != null && d.diff > tol;
+              return `
+                <tr style="${isOver ? 'background:rgba(255,92,92,0.1)' : ''}">
+                  <td><code>${d.ejecucion}</code></td>
+                  <td><code>${d.campo}</code></td>
+                  <td style="text-align:right;font-family:monospace">${fmtNum(d.orig)}</td>
+                  <td style="text-align:right;font-family:monospace">${fmtNum(d.nuevo)}</td>
+                  <td style="text-align:right;font-family:monospace;font-weight:600;color:${isOver ? '#ff5c5c' : '#7ee787'}">
+                    ${d.diff != null ? fmtNum(d.diff) : '—'}
+                  </td>
+                  <td style="text-align:center">
+                    <span class="pill ${isOver ? 'bad' : 'ok'}">${isOver ? 'Difiere' : 'OK'}</span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+        ${sortedDetalles.length > 100 ? `<p class="sub" style="margin-top:8px">Mostrando las 100 diferencias de mayor magnitud de ${sortedDetalles.length} evaluadas.</p>` : ''}
+      `;
+    }
+
+    content.innerHTML = html;
+    modal.style.display = 'flex';
+  }
+
+  function closeComparisonModal() {
+    if (typeof document !== 'undefined') {
+      const modal = document.getElementById('comparisonModal');
+      if (modal) modal.style.display = 'none';
+    }
+  }
+
   // Eliminar una simulación de la base
   async function deleteSimulation(simId) {
     if (!db) return;
@@ -965,7 +1330,8 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     try {
       const res = db.exec(`
         SELECT s.id, s.fecha, s.estado, s.coincide, s.diferencia_max,
-               c.nombre AS caso_nombre, e.tipo AS escenario_tipo
+               c.nombre AS caso_nombre, e.tipo AS escenario_tipo,
+               s.simulacion_origen_id, s.tol_comparacion
         FROM simulacion s
         JOIN escenario e ON s.escenario_id = e.id
         JOIN caso_estudio c ON e.caso_id = c.id
@@ -978,6 +1344,8 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
       }
 
       const rows = res[0].values;
+      const fmtExp = (n) => (n != null ? (Math.abs(n) < 1e-3 || Math.abs(n) >= 1e4 ? Number(n).toExponential(2) : Number(n).toFixed(4)) : '—');
+
       const html = `
         <table class="tbl" style="width:100%;font-size:0.85rem">
           <thead>
@@ -993,23 +1361,41 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
           </thead>
           <tbody>
             ${rows.map(r => {
-              let valBadge = '<span class="pill" style="opacity:0.7">Original</span>';
-              if (r[3] === 1) {
-                valBadge = '<span class="pill ok">✔ Coincide (Δ=' + (r[4] != null ? Number(r[4]).toFixed(4) : '0.0000') + ')</span>';
-              } else if (r[3] === 0) {
-                valBadge = '<span class="pill bad">✘ Difiere (Δ=' + (r[4] != null ? Number(r[4]).toFixed(4) : '—') + ')</span>';
+              const simId = r[0];
+              const fecha = r[1];
+              const estado = r[2];
+              const coincide = r[3];
+              const diffMax = r[4];
+              const casoNom = r[5];
+              const escTipo = r[6];
+              const origenId = r[7];
+
+              let idDisplay = `<strong>#${simId}</strong>`;
+              if (origenId != null) {
+                idDisplay += `<span style="font-size:0.75rem;color:var(--text-muted, #888);display:block">↳ #${origenId}</span>`;
               }
+
+              let valBadge = '<span class="pill" style="opacity:0.7">Original</span>';
+              if (origenId != null) {
+                if (coincide === 1) {
+                  valBadge = `<button class="pill ok" style="cursor:pointer;border:none;font-weight:600" onclick="DB.showComparisonDetail(${simId})" title="Clic para ver detalle de comparación">✔ Coincide (Δ=${fmtExp(diffMax)})</button>`;
+                } else if (coincide === 0) {
+                  valBadge = `<button class="pill bad" style="cursor:pointer;border:none;font-weight:600" onclick="DB.showComparisonDetail(${simId})" title="Clic para ver detalle de discrepancias">✘ Difiere (Δ=${fmtExp(diffMax)})</button>`;
+                }
+              }
+
               return `
               <tr>
-                <td><strong>#${r[0]}</strong></td>
-                <td>${r[1]}</td>
-                <td>${r[5]}</td>
-                <td><span class="pill ${r[6] === 'NORMAL' ? 'ok' : r[6] === 'ESTRES' ? 'bad' : 'warn'}">${r[6]}</span></td>
-                <td><span class="pill ${r[2] === 'COMPLETADO' ? 'ok' : 'bad'}">${r[2]}</span></td>
+                <td>${idDisplay}</td>
+                <td>${fecha}</td>
+                <td>${casoNom}</td>
+                <td><span class="pill ${escTipo === 'NORMAL' ? 'ok' : escTipo === 'ESTRES' ? 'bad' : 'warn'}">${escTipo}</span></td>
+                <td><span class="pill ${estado === 'COMPLETADO' ? 'ok' : 'bad'}">${estado}</span></td>
                 <td>${valBadge}</td>
-                <td style="text-align:center;display:flex;gap:6px;justify-content:center">
-                  <button class="btn ghost sm" onclick="DB.loadSimulation(${r[0]})" title="Abrir simulación guardada (sin recálculo)">Abrir</button>
-                  <button class="btn ghost sm" style="color:#ff5c5c;border-color:rgba(255,92,92,0.4)" onclick="DB.deleteSimulation(${r[0]})" title="Eliminar de la BD">✕</button>
+                <td style="text-align:center;display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+                  <button class="btn ghost sm" onclick="DB.loadSimulation(${simId})" title="Abrir simulación guardada (sin recálculo)">Abrir</button>
+                  <button class="btn ghost sm" style="color:#7ee787;border-color:rgba(126,231,135,0.4)" onclick="DB.relaunchSimulationUI(${simId})" title="Relanzar y comparar matemáticamente">Relanzar</button>
+                  <button class="btn ghost sm" style="color:#ff5c5c;border-color:rgba(255,92,92,0.4)" onclick="DB.deleteSimulation(${simId})" title="Eliminar de la BD">✕</button>
                 </td>
               </tr>
             `;}).join('')}
@@ -1036,6 +1422,12 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     saveSimulation,
     saveCurrentSimulation,
     loadSimulation,
+    readSimulationFromDB,
+    recomputeExecutions,
+    relaunchSimulation,
+    relaunchSimulationUI,
+    showComparisonDetail,
+    closeComparisonModal,
     exitQueryMode,
     getQueryMode,
     getLastLoadedSimulation,
