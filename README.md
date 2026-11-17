@@ -213,7 +213,7 @@ Para desacoplar el motor de guardado de los módulos numéricos y permitir que f
   - Cada fila en `iteracion_resultado` conserva su índice de iteración real (`numero = idx`), preservando la escala temporal y la fidelidad analítica de la curva de convergencia.
 
 ### 7. Recuento Esperado de Ejecuciones e Iteraciones (Escenario Normal)
-Al guardar la simulación interactiva completa desde la interfaz web, se registran **23 ejecuciones numéricas** y **1,444 filas de iteraciones**:
+Al guardar la simulación interactiva completa desde la interfaz web, se registran **23 ejecuciones numéricas**, **1,489 filas de iteraciones** y **28 series gráficas**:
 
 | Módulo / Caso de Estudio | Método Numérico | Familia | Iteraciones ($k$) | Filas en `iteracion_resultado` | Series Gráficas |
 | :--- | :--- | :--- | :---: | :---: | :---: |
@@ -224,7 +224,7 @@ Al guardar la simulación interactiva completa desde la interfaz web, se registr
 | | Gauss-Seidel | SISTEMAS_LINEALES | 11 | 12 | 1 |
 | | Gradiente conjugado | SISTEMAS_LINEALES | 4 | 5 | 1 |
 | **M2: Deterioro** | Newton-Raphson | RAICES | 6 | 6 | 2 |
-| | Bisección | RAICES | 45 | 0 | 0 |
+| | Bisección | RAICES | 45 | 45 | 0 |
 | | Fórmula Vieta Estable | ANALITICO | 1 | 0 | 0 |
 | | LU (directo) | SISTEMAS_LINEALES | 1 | 0 | 1 |
 | | Jacobi | SISTEMAS_LINEALES | 25 | 26 | 1 |
@@ -240,7 +240,7 @@ Al guardar la simulación interactiva completa desde la interfaz web, se registr
 | | Gauss-Seidel | SISTEMAS_LINEALES | 116 | 117 | 1 |
 | | Gradiente conjugado | SISTEMAS_LINEALES | 4 | 5 | 1 |
 | | Spline Cúbico Natural | INTERPOLACION | — | 0 | 3 |
-| **TOTAL** | **23 ejecuciones** | — | — | **1,444 iteraciones** | **27 series** |
+| **TOTAL** | **23 ejecuciones** | — | — | **1,489 iteraciones** | **28 series** |
 
 ---
 

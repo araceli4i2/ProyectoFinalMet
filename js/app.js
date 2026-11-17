@@ -30,13 +30,22 @@ function gauss(R) { const u = Math.max(R(), 1e-12), v = R(); return Math.sqrt(-2
 /* ---------- raíces: bisección con conteo de iteraciones ---------- */
 function bisect(f, a, b, tol = 1e-12, maxIt = 300) {
   let fa = f(a), fb = f(b), it = 0;
-  if (!isFinite(fa) || !isFinite(fb) || fa * fb > 0) return { x: null, it: 0 };
+  const hist = [];
+  if (!isFinite(fa) || !isFinite(fb) || fa * fb > 0) return { x: null, it: 0, hist: [] };
   while (b - a > tol && it < maxIt) {
     it++;
     const m = (a + b) / 2, fm = f(m);
+    hist.push({
+      numero: it,
+      a,
+      b,
+      m,
+      residual: Math.abs(fm),
+      error_abs: (b - a) / 2
+    });
     if (fa * fm <= 0) { b = m; fb = fm; } else { a = m; fa = fm; }
   }
-  return { x: (a + b) / 2, it };
+  return { x: (a + b) / 2, it, hist };
 }
 
 /* ---------- álgebra lineal ---------- */

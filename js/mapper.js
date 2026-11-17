@@ -107,7 +107,9 @@ const Mapper = (() => {
   function sampleIterations(hist, maxPoints = 500) {
     if (!Array.isArray(hist) || hist.length === 0) return [];
     const n = hist.length;
+    const isObj = typeof hist[0] === 'object' && hist[0] !== null;
     if (n <= maxPoints) {
+      if (isObj) return hist;
       return hist.map((resVal, idx) => ({
         numero: idx,
         aproximacion_json: '{}',
@@ -119,13 +121,17 @@ const Mapper = (() => {
     const sampled = [];
     for (let j = 0; j < maxPoints; j++) {
       const idx = Math.round((j * (n - 1)) / (maxPoints - 1));
-      sampled.push({
-        numero: idx,
-        aproximacion_json: '{}',
-        residual: sanitizeNumber(hist[idx]),
-        error_abs: null,
-        error_rel: null
-      });
+      if (isObj) {
+        sampled.push(hist[idx]);
+      } else {
+        sampled.push({
+          numero: idx,
+          aproximacion_json: '{}',
+          residual: sanitizeNumber(hist[idx]),
+          error_abs: null,
+          error_rel: null
+        });
+      }
     }
     return sampled;
   }
@@ -305,6 +311,14 @@ const Mapper = (() => {
       });
 
       if (r2.bis) {
+        const bisIters = Array.isArray(r2.bis.hist) ? r2.bis.hist.map(it => ({
+          numero: it.numero,
+          aproximacion_json: JSON.stringify({ a: sanitizeNumber(it.a), b: sanitizeNumber(it.b), x: sanitizeNumber(it.m) }),
+          residual: sanitizeNumber(it.residual),
+          error_abs: sanitizeNumber(it.error_abs),
+          error_rel: safeRelError(it.error_abs, it.m)
+        })) : [];
+
         executions.push({
           caso_id: 2,
           familia: 'RAICES',
@@ -315,7 +329,7 @@ const Mapper = (() => {
           convergio: r2.bis.x != null,
           estado: 'CONVERGIO',
           tiempo_ms: null,
-          iteraciones: [],
+          iteraciones: sampleIterations(bisIters, 500),
           resumen: {
             referencia: 'Vieta Estable',
             valor_json: JSON.stringify({ t_star: sanitizeNumber(r2.bis.x), iteraciones: r2.bis.it }),
