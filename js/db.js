@@ -198,9 +198,18 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     }
   }
 
+  function uiAlert(msg) {
+    if (typeof alert !== 'undefined') {
+      alert(msg);
+    } else {
+      console.log('[ALERT]', msg);
+    }
+  }
+
   // Persistir base en IndexedDB
   async function persist() {
     if (!db) return;
+    if (typeof indexedDB === 'undefined') return;
     const binary = db.export();
     await saveToIDB(IDB_KEY, binary);
   }
@@ -212,7 +221,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
 
   // Descargar archivo .db
   function downloadDB() {
-    if (!db) { alert('Base de datos no inicializada'); return; }
+    if (!db) { uiAlert('Base de datos no inicializada'); return; }
     const binary = db.export();
     const blob = new Blob([binary], { type: 'application/x-sqlite3' });
     const url = URL.createObjectURL(blob);
@@ -238,9 +247,9 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
         db = testDb;
         await persist();
         renderHistory();
-        alert('Base de datos SQLite cargada y persistida exitosamente.');
+        uiAlert('Base de datos SQLite cargada y persistida exitosamente.');
       } catch (e) {
-        alert('Error al cargar la base de datos: ' + e.message);
+        uiAlert('Error al cargar la base de datos: ' + e.message);
       }
     };
     reader.readAsArrayBuffer(file);
@@ -257,7 +266,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     if (seedSql) db.run(seedSql);
     await persist();
     renderHistory();
-    alert('Base de datos restablecida a los valores iniciales de fábrica.');
+    uiAlert('Base de datos restablecida a los valores iniciales de fábrica.');
   }
 
   // Helper determinista para ordenación de claves de objetos (evita discrepancias por orden)
@@ -465,8 +474,8 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
 
   // Guardar la simulación actual activa de la interfaz web
   async function saveCurrentSimulation() {
-    if (!db) { alert('Base de datos no disponible'); return; }
-    if (!window.LAST || !window.LAST.r1) { alert('Ejecuta primero los cálculos de la simulación'); return; }
+    if (!db) { uiAlert('Base de datos no disponible'); return; }
+    if (!window.LAST || !window.LAST.r1) { uiAlert('Ejecuta primero los cálculos de la simulación'); return; }
 
     try {
       const escCode = (document.getElementById('scen') ? document.getElementById('scen').value : 'N') || 'N';
@@ -534,10 +543,10 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
       // Persistencia en IndexedDB ÚNICAMENTE después de confirmar todos los commits
       await persist();
       renderHistory();
-      alert(`Guardado completado exitosamente: ${totalSims} simulaciones y ${totalEjecs} ejecuciones registradas en SQLite.`);
+      uiAlert(`Guardado completado exitosamente: ${totalSims} simulaciones y ${totalEjecs} ejecuciones registradas en SQLite.`);
     } catch (e) {
       console.error(e);
-      alert('Error guardando en la base de datos: ' + e.message);
+      uiAlert('Error guardando en la base de datos: ' + e.message);
     }
   }
 
@@ -552,7 +561,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
         WHERE s.id = ${simId};
       `);
       if (!res || !res.length || !res[0].values.length) {
-        alert('Simulación no encontrada.');
+        uiAlert('Simulación no encontrada.');
         return;
       }
       const [id, fecha, tipo, paramJson, casoId] = res[0].values[0];
@@ -577,9 +586,9 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
         }
       }
 
-      alert(`Simulación #${id} (${tipo}) cargada en la interfaz.`);
+      uiAlert(`Simulación #${id} (${tipo}) cargada en la interfaz.`);
     } catch (e) {
-      alert('Error cargando simulación: ' + e.message);
+      uiAlert('Error cargando simulación: ' + e.message);
     }
   }
 
@@ -592,7 +601,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
       await persist();
       renderHistory();
     } catch (e) {
-      alert('Error al eliminar simulación: ' + e.message);
+      uiAlert('Error al eliminar simulación: ' + e.message);
     }
   }
 
