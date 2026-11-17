@@ -63,6 +63,18 @@ async function runTests() {
   console.log(`   Simulaciones en historial inicial: ${numSim} (esperado >= 4)`);
   if (numSim < 4) throw new Error(`Esperado al menos 4 simulaciones en el seed, obtenido ${numSim}`);
 
+  // Verificar que las simulaciones originales de seed tienen coincide, diff_max y tol_comp en NULL
+  const seedSimCheck = db.exec('SELECT id, simulacion_origen_id, coincide, diferencia_max, tol_comparacion FROM simulacion;');
+  seedSimCheck[0].values.forEach(row => {
+    const [simId, origId, cinc, diff, tol] = row;
+    if (origId === null) {
+      if (cinc !== null || diff !== null || tol !== null) {
+        throw new Error(`Simulación original #${simId} debe tener coincide, diferencia_max y tol_comparacion en NULL (obtenido coincide=${cinc}, diff=${diff}, tol=${tol})`);
+      }
+    }
+  });
+  console.log('   -> Verificación de NULLs para simulaciones originales en seed.sql exitosa.');
+
   // 3. Probar integridad referencial y ON DELETE CASCADE
   console.log('\n3. Verificando integridad referencial (Foreign Keys y CASCADE)...');
   

@@ -361,10 +361,18 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
       const fecha = simulacion.fecha || now;
       const usuario = simulacion.usuario_equipo || 'Usuario Web / SIMTELE-RISK';
       const estado = simulacion.estado || 'COMPLETADO';
-      const coincide = simulacion.coincide !== undefined ? (simulacion.coincide ? 1 : 0) : 1;
-      const diffMax = simulacion.diferencia_max !== undefined ? simulacion.diferencia_max : 0.0;
-      const tolComp = simulacion.tol_comparacion !== undefined ? simulacion.tol_comparacion : 0.001;
       const origenId = simulacion.simulacion_origen_id || null;
+      // Regla de integridad DER: solo las simulaciones relanzadas (origenId !== null)
+      // tienen coincide, diferencia_max y tol_comparacion. Las originales llevan NULL.
+      const coincide = (origenId !== null && simulacion.coincide !== undefined && simulacion.coincide !== null)
+        ? (simulacion.coincide ? 1 : 0)
+        : null;
+      const diffMax = (origenId !== null && simulacion.diferencia_max !== undefined && simulacion.diferencia_max !== null)
+        ? simulacion.diferencia_max
+        : null;
+      const tolComp = (origenId !== null && simulacion.tol_comparacion !== undefined && simulacion.tol_comparacion !== null)
+        ? simulacion.tol_comparacion
+        : null;
 
       activeDb.run(
         `INSERT INTO simulacion (escenario_id, fecha, usuario_equipo, estado, simulacion_origen_id, coincide, diferencia_max, tol_comparacion)
@@ -529,9 +537,10 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
             fecha: now,
             usuario_equipo: 'Usuario Web / SIMTELE-RISK',
             estado: 'COMPLETADO',
-            coincide: 1,
-            diferencia_max: 0.0,
-            tol_comparacion: 0.001
+            simulacion_origen_id: null,
+            coincide: null,
+            diferencia_max: null,
+            tol_comparacion: null
           },
           ejecuciones: cData.ejecs
         });
@@ -958,20 +967,27 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
             </tr>
           </thead>
           <tbody>
-            ${rows.map(r => `
+            ${rows.map(r => {
+              let valBadge = '<span class="pill" style="opacity:0.7">Original</span>';
+              if (r[3] === 1) {
+                valBadge = '<span class="pill ok">✔ Coincide (Δ=' + (r[4] != null ? Number(r[4]).toFixed(4) : '0.0000') + ')</span>';
+              } else if (r[3] === 0) {
+                valBadge = '<span class="pill bad">✘ Difiere (Δ=' + (r[4] != null ? Number(r[4]).toFixed(4) : '—') + ')</span>';
+              }
+              return `
               <tr>
                 <td><strong>#${r[0]}</strong></td>
                 <td>${r[1]}</td>
                 <td>${r[5]}</td>
                 <td><span class="pill ${r[6] === 'NORMAL' ? 'ok' : r[6] === 'ESTRES' ? 'bad' : 'warn'}">${r[6]}</span></td>
                 <td><span class="pill ${r[2] === 'COMPLETADO' ? 'ok' : 'bad'}">${r[2]}</span></td>
-                <td>${r[3] ? '✔ Coincide (Δ=' + Number(r[4]).toFixed(4) + ')' : '—'}</td>
+                <td>${valBadge}</td>
                 <td style="text-align:center;display:flex;gap:6px;justify-content:center">
                   <button class="btn ghost sm" onclick="DB.loadSimulation(${r[0]})" title="Abrir simulación guardada (sin recálculo)">Abrir</button>
                   <button class="btn ghost sm" style="color:#ff5c5c;border-color:rgba(255,92,92,0.4)" onclick="DB.deleteSimulation(${r[0]})" title="Eliminar de la BD">✕</button>
                 </td>
               </tr>
-            `).join('')}
+            `;}).join('')}
           </tbody>
         </table>
       `;

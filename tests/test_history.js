@@ -31,6 +31,14 @@ async function testHistory() {
   if (rows.length < 4) {
     throw new Error('Faltan simulaciones en el historial');
   }
+
+  for (const r of rows) {
+    if (r.simulacion_origen_id === null || r.simulacion_origen_id === undefined) {
+      if (r.coincide !== null || r.diferencia_max !== null) {
+        throw new Error(`Simulación original #${r.id} debe tener coincide y diferencia_max en NULL`);
+      }
+    }
+  }
   console.log('Test de consulta de historial exitoso.');
 }
 

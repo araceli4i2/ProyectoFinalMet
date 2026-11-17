@@ -36,7 +36,7 @@ INSERT INTO escenario (id, caso_id, tipo, parametros_json, fuente_datos) VALUES
 
 -- Simulación 1: Módulo 1 (Escenario NORMAL)
 INSERT INTO simulacion (id, escenario_id, fecha, usuario_equipo, estado, simulacion_origen_id, coincide, diferencia_max, tol_comparacion) VALUES
-(1, 1, '2026-11-14 10:00:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, 1, 0.0, 0.001);
+(1, 1, '2026-11-14 10:00:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, NULL, NULL, NULL);
 
 INSERT INTO ejecucion_metodo (id, simulacion_id, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms) VALUES
 (1, 1, 'EDO', 'Runge-Kutta 4', NULL, 0.05, 200, 1, 'COMPLETADO', 1.25),
@@ -55,7 +55,7 @@ INSERT INTO serie_grafico (id, ejecucion_id, nombre, datos_json) VALUES
 
 -- Simulación 2: Módulo 2 (Escenario NORMAL)
 INSERT INTO simulacion (id, escenario_id, fecha, usuario_equipo, estado, simulacion_origen_id, coincide, diferencia_max, tol_comparacion) VALUES
-(2, 4, '2026-11-14 10:15:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, 1, 0.0, 0.001);
+(2, 4, '2026-11-14 10:15:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, NULL, NULL, NULL);
 
 INSERT INTO ejecucion_metodo (id, simulacion_id, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms) VALUES
 (4, 2, 'RAICES', 'Newton-Raphson', 1e-8, NULL, 100, 1, 'CONVERGIO', 0.42),
@@ -73,7 +73,7 @@ INSERT INTO serie_grafico (id, ejecucion_id, nombre, datos_json) VALUES
 
 -- Simulación 3: Módulo 3 (Escenario NORMAL)
 INSERT INTO simulacion (id, escenario_id, fecha, usuario_equipo, estado, simulacion_origen_id, coincide, diferencia_max, tol_comparacion) VALUES
-(3, 7, '2026-11-14 10:30:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, 1, 0.0, 0.001);
+(3, 7, '2026-11-14 10:30:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, NULL, NULL, NULL);
 
 INSERT INTO ejecucion_metodo (id, simulacion_id, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms) VALUES
 (7, 3, 'EDO_SISTEMA', 'Runge-Kutta 4 Armonico', NULL, 0.05, 1200, 1, 'COMPLETADO', 1.80),
@@ -89,7 +89,7 @@ INSERT INTO serie_grafico (id, ejecucion_id, nombre, datos_json) VALUES
 
 -- Simulación 4: Módulo 4 (Escenario NORMAL)
 INSERT INTO simulacion (id, escenario_id, fecha, usuario_equipo, estado, simulacion_origen_id, coincide, diferencia_max, tol_comparacion) VALUES
-(4, 10, '2026-11-14 10:45:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, 1, 0.0, 0.001);
+(4, 10, '2026-11-14 10:45:00', 'SIMTELE-RISK / Equipo Métodos UMSA', 'COMPLETADO', NULL, NULL, NULL, NULL);
 
 INSERT INTO ejecucion_metodo (id, simulacion_id, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms) VALUES
 (9, 4, 'SISTEMAS_LINEALES', 'LU (directo)', NULL, NULL, 1, 1, 'DIRECTO', 0.15),
