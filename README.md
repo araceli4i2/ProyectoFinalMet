@@ -240,6 +240,7 @@ ProyectoFinalMetodos/
 │   ├── test_history.js     # Pruebas automatizadas de consultas y relaciones
 │   ├── test_mapper.js      # Pruebas automatizadas de contratos v1/v2 y sanitización
 │   ├── test_paso3a.js      # Pruebas de guardado transaccional, rollback y escenarios inmutables
+│   ├── test_paso3b.js      # Pruebas de apertura en modo consulta (solo lectura, sin recálculo)
 │   └── e2e_verify.js       # Verificación numérica e2e rigurosa de todos los módulos y escenarios
 ├── vendor/
 │   └── sqljs/              # Binarios locales sql-wasm.js y sql-wasm.wasm (cero CDN)

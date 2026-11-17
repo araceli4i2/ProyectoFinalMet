@@ -525,7 +525,12 @@ function presetInterp(i) {
    RENDER · KPIs y módulos
    ===================================================================== */
 let timer = null, LAST = {};
-function schedule() { clearTimeout(timer); timer = setTimeout(recalcAll, 90); }
+window.IS_QUERY_MODE = false;
+function schedule() {
+  if (window.IS_QUERY_MODE) return;
+  clearTimeout(timer);
+  timer = setTimeout(recalcAll, 90);
+}
 
 function renderKPIs() {
   const { r1, r2, r3, r4 } = LAST;
@@ -931,6 +936,7 @@ function renderConclusions() {
    RECÁLCULO GLOBAL
    ===================================================================== */
 function recalcAll() {
+  if (window.IS_QUERY_MODE) return;
   try {
     const p1 = readForm('m1'), p2 = readForm('m2'), p3 = readForm('m3'), p4 = readForm('m4'), pi = readForm('mi');
     p1.h = Math.min(0.5, Math.max(1e-4, p1.h));
@@ -1097,5 +1103,21 @@ document.addEventListener('DOMContentLoaded', () => {
   window.applyScenario = applyScenario;
   window.setForm = setForm;
   window.recalcAll = recalcAll;
+  window.schedule = schedule;
+  window.chart = chart;
+  window.ds = ds;
+  window.C = C;
+  window.kpi = kpi;
+  window.pill = pill;
+  window.fmt = fmt;
+  window.sci = sci;
+  window.tbl = tbl;
+  window.MODEL1 = MODEL1;
+  window.LAT3 = LAT3;
+  window.renderKPIs = renderKPIs;
+  window.render1 = render1;
+  window.render2 = render2;
+  window.render3 = render3;
+  window.render4 = render4;
   recalcAll();
 });

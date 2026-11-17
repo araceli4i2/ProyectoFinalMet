@@ -550,45 +550,363 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     }
   }
 
-  // Cargar simulación desde la base de datos a la interfaz
-  function loadSimulation(simId) {
-    if (!db) return;
-    try {
-      const res = db.exec(`
-        SELECT s.id, s.fecha, e.tipo, e.parametros_json, e.caso_id
-        FROM simulacion s
-        JOIN escenario e ON s.escenario_id = e.id
-        WHERE s.id = ${simId};
-      `);
-      if (!res || !res.length || !res[0].values.length) {
-        uiAlert('Simulación no encontrada.');
-        return;
+  // Estado de Modo Consulta (Solo lectura sin recálculo)
+  let isQueryMode = false;
+  let lastLoadedSimulation = null;
+
+  function getQueryMode() {
+    return isQueryMode;
+  }
+
+  function getLastLoadedSimulation() {
+    return lastLoadedSimulation;
+  }
+
+  function exitQueryMode() {
+    isQueryMode = false;
+    if (typeof window !== 'undefined') {
+      window.IS_QUERY_MODE = false;
+    }
+
+    if (typeof document !== 'undefined') {
+      const banner = document.getElementById('queryModeBanner');
+      if (banner) banner.style.display = 'none';
+
+      // Habilitar todos los controles de formularios
+      const formControls = document.querySelectorAll('#scen, [data-m] input, [data-m] select, button.btn-preset, input[data-live]');
+      formControls.forEach(el => el.disabled = false);
+
+      // Restablecer el recálculo reactivo con el estado actual
+      if (typeof window.recalcAll === 'function') {
+        window.recalcAll();
       }
-      const [id, fecha, tipo, paramJson, casoId] = res[0].values[0];
-      const scenKey = (tipo === 'NORMAL') ? 'N' : (tipo === 'ESTRES') ? 'E' : 'MC';
-      
-      const scenEl = document.getElementById('scen');
-      if (scenEl) {
-        scenEl.value = scenKey;
-        if (typeof window.applyScenario === 'function') window.applyScenario();
+    }
+    uiAlert('Modo consulta finalizado. Se ha restablecido el cálculo reactivo interactivo.');
+  }
+
+  // Renderiza en la interfaz gráfica los datos guardados en SQLite directamente (sin recalcular)
+  function renderSimulationFromDB(loaded) {
+    if (typeof document === 'undefined') return;
+
+    const { simulacion, escenario, ejecuciones } = loaded;
+    const fmt = (typeof window.fmt === 'function') ? window.fmt : (x, d=2) => (x == null ? '—' : Number(x).toFixed(d));
+    const sci = (typeof window.sci === 'function') ? window.sci : (x, d=2) => (x == null ? '—' : Number(x).toExponential(d));
+    const pill = (typeof window.pill === 'function') ? window.pill : (cls, txt) => `<span class="pill ${cls}">${txt}</span>`;
+    const kpi = (typeof window.kpi === 'function') ? window.kpi : (t, v, s) => `<div class="kpi"><div class="t">${t}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`;
+    const ds = (typeof window.ds === 'function') ? window.ds : (l, data, color, o={}) => ({ label: l, data, borderColor: color, ...o });
+    const C = window.C || { O: '#ff7a00', O2: '#ffa53d', W: '#f4f4f4', Y: '#ffd166', R: '#ff3b3b', G: '#7ee787', GR: '#9a9a9a' };
+    const chart = (typeof window.chart === 'function') ? window.chart : () => {};
+
+    // 1. Extraer resúmenes de cada ejecución por familia
+    let r1Val = {}, r2Val = {}, r3Val = {}, r4Val = {};
+    let conclNum = [], conclProb = [];
+
+    ejecuciones.forEach(ej => {
+      let val = {};
+      if (ej.resumen && ej.resumen.valor_json) {
+        try { val = JSON.parse(ej.resumen.valor_json); } catch (e) { val = {}; }
+      }
+      if (ej.resumen) {
+        if (ej.resumen.conclusion_numerica) conclNum.push(ej.resumen.conclusion_numerica);
+        if (ej.resumen.conclusion_problema) conclProb.push(ej.resumen.conclusion_problema);
       }
 
-      if (paramJson) {
+      if (ej.metodo.includes('Runge-Kutta') || ej.metodo.includes('RK4')) {
+        r1Val = { ...val, estado: ej.estado, metodo: ej.metodo };
+      } else if (ej.familia === 'EDO' && r1Val.D_total === undefined) {
+        r1Val = { ...val, estado: ej.estado, metodo: ej.metodo };
+      } else if (ej.metodo.includes('Newton') || (ej.familia === 'RAICES' && r2Val.t_star === undefined)) {
+        r2Val = { ...val, estado: ej.estado };
+      } else if (ej.familia === 'EDO_SISTEMA' || ej.metodo.includes('Armonico') || ej.metodo.includes('Armónico')) {
+        r3Val = { ...val, estado: ej.estado };
+      } else if (ej.familia === 'SISTEMAS_LINEALES' || ej.familia === 'INTERPOLACION') {
+        r4Val = { ...r4Val, ...val, estado: ej.estado };
+      }
+    });
+
+    // 2. Renderizar KPIs generales (#kpis) directamente de la BD
+    const kpisEl = document.getElementById('kpis');
+    if (kpisEl) {
+      let htmlKpis = '';
+      if (r1Val.D_total !== undefined) {
+        htmlKpis += kpi('D_total · Módulo 1', fmt(r1Val.D_total, 2) + ' m', r1Val.seguro ? pill('ok', 'Dentro de D_seg') : pill('bad', 'Supera D_seg'));
+      }
+      if (r2Val.t_star !== undefined) {
+        htmlKpis += kpi('Cruce t* · Módulo 2', r2Val.t_star == null ? '—' : fmt(r2Val.t_star, 2) + ' meses', pill('ok', r2Val.estado || 'Calculado'));
+      }
+      if (r3Val.X !== undefined) {
+        htmlKpis += kpi('Amplitud X(Ω) · Módulo 3', fmt(r3Val.X, 2) + ' m', r3Val.cumple ? pill('ok', '≤ 0.50 m (Cumple)') : pill('bad', '> 0.50 m (No cumple)'));
+      }
+      if (r4Val.kappa2 !== undefined) {
+        htmlKpis += kpi('κ₂ sensores · Módulo 4', sci(r4Val.kappa2), r4Val.kappa2 < 1e3 ? 'Bien condicionado' : 'Mal condicionado');
+      }
+      if (htmlKpis) kpisEl.innerHTML = htmlKpis;
+    }
+
+    // 3. Renderizar Módulo 1
+    if (r1Val.D_total !== undefined) {
+      const k1 = document.getElementById('k1');
+      if (k1) {
+        k1.innerHTML =
+          kpi('t_det (parada)', fmt(r1Val.t_det, 3) + ' s', 'Desde base de datos') +
+          kpi('D_total', fmt(r1Val.D_total, 2) + ' m', r1Val.seguro ? pill('ok', 'Seguro') : pill('bad', 'Riesgo'));
+      }
+      const s1 = document.getElementById('s1');
+      if (s1 && r1Val.conclusion_problema) {
+        s1.innerHTML = `<p class="note"><strong>Resultado cargado de SQLite:</strong> ${r1Val.conclusion_problema}</p>`;
+      }
+    }
+
+    // 4. Renderizar Módulo 2
+    if (r2Val.t_star !== undefined) {
+      const k2 = document.getElementById('k2');
+      if (k2) {
+        k2.innerHTML =
+          kpi('Cruce t*', fmt(r2Val.t_star, 4) + ' meses', pill('ok', r2Val.estado || 'CONVERGIO')) +
+          kpi('Sensibilidad dt*/dDu', r2Val.sensibilidad == null ? '—' : fmt(r2Val.sensibilidad, 2), 'Desde base de datos');
+      }
+      const s2 = document.getElementById('s2');
+      if (s2 && r2Val.conclusion_problema) {
+        s2.innerHTML = `<p class="note"><strong>Resultado cargado de SQLite:</strong> ${r2Val.conclusion_problema}</p>`;
+      }
+    }
+
+    // 5. Renderizar Módulo 3
+    if (r3Val.X !== undefined) {
+      const k3 = document.getElementById('k3');
+      if (k3) {
+        k3.innerHTML =
+          kpi('Amplitud en régimen X(Ω)', fmt(r3Val.X, 4) + ' m', r3Val.cumple ? pill('ok', 'Bajo A_lim') : pill('bad', 'Supera A_lim')) +
+          kpi('Primer cruce', r3Val.primer_cruce_s == null ? '—' : fmt(r3Val.primer_cruce_s, 2) + ' s', 'Desde base de datos');
+      }
+      const s3 = document.getElementById('s3');
+      if (s3 && r3Val.conclusion_problema) {
+        s3.innerHTML = `<p class="note"><strong>Resultado cargado de SQLite:</strong> ${r3Val.conclusion_problema}</p>`;
+      }
+    }
+
+    // 6. Renderizar Módulo 4
+    if (r4Val.kappa2 !== undefined) {
+      const k4 = document.getElementById('k4');
+      if (k4) {
+        k4.innerHTML =
+          kpi('κ₂(AᵀA)', sci(r4Val.kappa2), r4Val.kappa2 < 1e3 ? pill('ok', 'Bien condicionado') : pill('bad', 'Mal condicionado')) +
+          kpi('Estado Solucionador', pill('ok', r4Val.estado || 'COMPLETADO'), 'Desde base de datos');
+      }
+    }
+
+    // 7. Renderizar Gráficos directamente desde serie_grafico
+    // Si alguna serie no existe, emitir aviso claro sin error
+    const allSeries = [];
+    ejecuciones.forEach(ej => {
+      (ej.series || []).forEach(s => allSeries.push(s));
+    });
+
+    const plotOrWarn = (canvasId, serieNamePrefix, xLabel, yLabel, color, opts={}) => {
+      const s = allSeries.find(item => item.nombre.includes(serieNamePrefix));
+      if (s && s.datos_json) {
         try {
-          const P = JSON.parse(paramJson);
-          const modKey = casoId === 1 ? 'm1' : casoId === 2 ? 'm2' : casoId === 3 ? 'm3' : 'm4';
-          if (typeof window.setForm === 'function') {
-            window.setForm(modKey, P);
-            if (typeof window.recalcAll === 'function') window.recalcAll();
+          const pts = JSON.parse(s.datos_json);
+          if (Array.isArray(pts) && pts.length > 0) {
+            chart(canvasId, 'line', [ds(s.nombre, pts, color, opts)], xLabel, yLabel);
+            return true;
           }
-        } catch (err) {
-          console.warn('Error parseando parámetros JSON del escenario:', err);
+        } catch (e) {
+          console.warn(`Aviso: Error parseando datos de la serie ${s.nombre}:`, e.message);
+        }
+      }
+      console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie '${serieNamePrefix}'. Se omite la visualización de ${canvasId} sin error.`);
+      return false;
+    };
+
+    plotOrWarn('c1', 'velocidad', 'Tiempo t (s)', 'Velocidad v (m/s)', C.O, { bw: 3 });
+    plotOrWarn('c2', 'posicion', 'Tiempo t (s)', 'Distancia (m)', C.Y, { bw: 3 });
+    plotOrWarn('c4', 'deterioro', 'Tiempo t (meses)', 'D(t)', C.O, { bw: 3 });
+    plotOrWarn('c5', 'sensibilidad', 'Margen ΔD', 't* (meses)', C.O, { bw: 3, xType: 'logarithmic', yType: 'logarithmic' });
+    plotOrWarn('c6', 'resonancia', 'Frecuencia Ω (rad/s)', 'Amplitud X (m)', C.O, { bw: 3 });
+    plotOrWarn('c7', 'oscilacion', 'Tiempo t (s)', 'Desplazamiento x (m)', C.O, { bw: 2 });
+    plotOrWarn('c8', 'ajuste', 'Variable r', 'y(r)', C.O, { bw: 3 });
+
+    // 8. Renderizar Conclusiones
+    if (conclNum.length > 0) {
+      const elNum = document.getElementById('concNum');
+      if (elNum) elNum.innerHTML = `<ul>${conclNum.map(c => `<li>${c}</li>`).join('')}</ul>`;
+    }
+    if (conclProb.length > 0) {
+      const elProb = document.getElementById('concProb');
+      if (elProb) elProb.innerHTML = `<ul>${conclProb.map(c => `<li>${c}</li>`).join('')}</ul>`;
+    }
+  }
+
+  // Abrir y cargar simulación desde la base de datos a la interfaz (sin recálculo)
+  function loadSimulation(simId, customDb) {
+    const activeDb = customDb || db;
+    if (!activeDb) { uiAlert('Base de datos no inicializada.'); return null; }
+
+    try {
+      const simQuery = activeDb.exec(`
+        SELECT s.id, s.fecha, s.usuario_equipo, s.estado, s.coincide, s.diferencia_max, s.tol_comparacion,
+               e.id AS escenario_id, e.caso_id, e.tipo AS escenario_tipo, e.parametros_json, e.fuente_datos,
+               c.nombre AS caso_nombre
+        FROM simulacion s
+        JOIN escenario e ON s.escenario_id = e.id
+        JOIN caso_estudio c ON e.caso_id = c.id
+        WHERE s.id = ${Number(simId)};
+      `);
+
+      if (!simQuery || !simQuery.length || !simQuery[0].values.length) {
+        uiAlert(`Simulación #${simId} no encontrada en la base de datos.`);
+        return null;
+      }
+
+      const r = simQuery[0].values[0];
+      const loaded = {
+        simulacion: {
+          id: r[0],
+          fecha: r[1],
+          usuario_equipo: r[2],
+          estado: r[3],
+          coincide: r[4],
+          diferencia_max: r[5],
+          tol_comparacion: r[6]
+        },
+        escenario: {
+          id: r[7],
+          caso_id: r[8],
+          tipo: r[9],
+          parametros_json: r[10],
+          parametros: JSON.parse(r[10] || '{}'),
+          fuente_datos: r[11],
+          caso_nombre: r[12]
+        },
+        ejecuciones: []
+      };
+
+      // Consultar ejecuciones de la simulación
+      const ejQuery = activeDb.exec(`
+        SELECT id, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms
+        FROM ejecucion_metodo
+        WHERE simulacion_id = ${loaded.simulacion.id}
+        ORDER BY id ASC;
+      `);
+
+      if (ejQuery && ejQuery.length && ejQuery[0].values.length) {
+        for (const ejRow of ejQuery[0].values) {
+          const ejId = ejRow[0];
+          const ej = {
+            id: ejId,
+            familia: ejRow[1],
+            metodo: ejRow[2],
+            tolerancia: ejRow[3],
+            paso: ejRow[4],
+            max_iter: ejRow[5],
+            convergio: Boolean(ejRow[6]),
+            estado: ejRow[7],
+            tiempo_ms: ejRow[8],
+            resumen: null,
+            iteraciones: [],
+            series: []
+          };
+
+          // Resumen
+          const resQuery = activeDb.exec(`
+            SELECT referencia, valor_json, metrica_error_json, conclusion_numerica, conclusion_problema
+            FROM resultado_resumen WHERE ejecucion_id = ${ejId};
+          `);
+          if (resQuery && resQuery.length && resQuery[0].values.length) {
+            const rr = resQuery[0].values[0];
+            ej.resumen = {
+              referencia: rr[0],
+              valor_json: rr[1],
+              metrica_error_json: rr[2],
+              conclusion_numerica: rr[3],
+              conclusion_problema: rr[4]
+            };
+          }
+
+          // Iteraciones
+          const itQuery = activeDb.exec(`
+            SELECT numero, aproximacion_json, residual, error_abs, error_rel
+            FROM iteracion_resultado WHERE ejecucion_id = ${ejId} ORDER BY numero ASC;
+          `);
+          if (itQuery && itQuery.length && itQuery[0].values.length) {
+            ej.iteraciones = itQuery[0].values.map(itRow => ({
+              numero: itRow[0],
+              aproximacion_json: itRow[1],
+              residual: itRow[2],
+              error_abs: itRow[3],
+              error_rel: itRow[4]
+            }));
+          }
+
+          // Series
+          const serQuery = activeDb.exec(`
+            SELECT id, nombre, datos_json
+            FROM serie_grafico WHERE ejecucion_id = ${ejId} ORDER BY id ASC;
+          `);
+          if (serQuery && serQuery.length && serQuery[0].values.length) {
+            ej.series = serQuery[0].values.map(sRow => ({
+              id: sRow[0],
+              nombre: sRow[1],
+              datos_json: sRow[2]
+            }));
+          }
+
+          loaded.ejecuciones.push(ej);
         }
       }
 
-      uiAlert(`Simulación #${id} (${tipo}) cargada en la interfaz.`);
+      lastLoadedSimulation = loaded;
+
+      // Activar bandera de modo consulta
+      isQueryMode = true;
+      if (typeof window !== 'undefined') {
+        window.IS_QUERY_MODE = true;
+      }
+
+      // Si estamos en un navegador con DOM activo:
+      if (typeof document !== 'undefined') {
+        // 1. Mostrar banner
+        const banner = document.getElementById('queryModeBanner');
+        if (banner) {
+          banner.style.display = 'flex';
+          const qId = document.getElementById('querySimId');
+          if (qId) qId.textContent = loaded.simulacion.id;
+        }
+
+        // 2. Poblar select de escenario
+        const scenKey = (typeof window.Mapper !== 'undefined' && window.Mapper.toUiEscenario)
+          ? window.Mapper.toUiEscenario(loaded.escenario.tipo)
+          : (loaded.escenario.tipo === 'ESTRES' ? 'E' : loaded.escenario.tipo === 'MAL_CONDICIONADO' ? 'MC' : 'N');
+        const scenEl = document.getElementById('scen');
+        if (scenEl) scenEl.value = scenKey;
+
+        // 3. Poblar formulario del caso correspondiente
+        const modKey = loaded.escenario.caso_id === 1 ? 'm1' : loaded.escenario.caso_id === 2 ? 'm2' : loaded.escenario.caso_id === 3 ? 'm3' : 'm4';
+        if (typeof window.setForm === 'function') {
+          window.setForm(modKey, loaded.escenario.parametros);
+        }
+
+        // 4. Establecer formularios en modo sólo lectura
+        const formControls = document.querySelectorAll('#scen, [data-m] input, [data-m] select, button.btn-preset, input[data-live]');
+        formControls.forEach(el => {
+          if (el.closest && (el.closest('#queryModeBanner') || el.closest('#arquitectura'))) {
+            return;
+          }
+          el.disabled = true;
+        });
+
+        // 5. Renderizar directamente desde la base (SIN recalcular)
+        renderSimulationFromDB(loaded);
+
+        uiAlert(`Simulación #${loaded.simulacion.id} (${loaded.escenario.tipo}) abierta en modo consulta (solo lectura, sin recálculo).`);
+      }
+
+      return loaded;
     } catch (e) {
+      console.error(e);
       uiAlert('Error cargando simulación: ' + e.message);
+      return null;
     }
   }
 
@@ -649,7 +967,7 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
                 <td><span class="pill ${r[2] === 'COMPLETADO' ? 'ok' : 'bad'}">${r[2]}</span></td>
                 <td>${r[3] ? '✔ Coincide (Δ=' + Number(r[4]).toFixed(4) + ')' : '—'}</td>
                 <td style="text-align:center;display:flex;gap:6px;justify-content:center">
-                  <button class="btn ghost sm" onclick="DB.loadSimulation(${r[0]})" title="Cargar parámetros en la interfaz">Cargar</button>
+                  <button class="btn ghost sm" onclick="DB.loadSimulation(${r[0]})" title="Abrir simulación guardada (sin recálculo)">Abrir</button>
                   <button class="btn ghost sm" style="color:#ff5c5c;border-color:rgba(255,92,92,0.4)" onclick="DB.deleteSimulation(${r[0]})" title="Eliminar de la BD">✕</button>
                 </td>
               </tr>
@@ -677,6 +995,10 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     saveSimulation,
     saveCurrentSimulation,
     loadSimulation,
+    exitQueryMode,
+    getQueryMode,
+    getLastLoadedSimulation,
+    renderSimulationFromDB,
     deleteSimulation,
     renderHistory,
     sortKeys,
