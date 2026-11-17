@@ -537,6 +537,15 @@ const Mapper = (() => {
       }
     }
 
+    // --- EXTENSIBILIDAD: Ejecuciones adicionales inyectadas por módulos de compañeros ---
+    if (results && Array.isArray(results.extraExecutions)) {
+      results.extraExecutions.forEach(ex => {
+        if (ex && ex.caso_id && ex.familia && ex.metodo) {
+          executions.push(ex);
+        }
+      });
+    }
+
     return executions;
   }
 

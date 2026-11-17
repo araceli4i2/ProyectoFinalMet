@@ -242,6 +242,178 @@ Al guardar la simulación interactiva completa desde la interfaz web, se registr
 | | Spline Cúbico Natural | INTERPOLACION | — | 0 | 3 |
 | **TOTAL** | **23 ejecuciones** | — | — | **1,489 iteraciones** | **28 series** |
 
+### 8. Guía para el Equipo: Cómo Agregar un Método o Familia al Guardado (Sin Tocar el Esquema SQL)
+
+El esquema relacional de SQLite (`db/schema.sql`) fue diseñado para ser **100% genérico y extensible**. **NO es necesario alterar tablas ni agregar columnas** para incorporar nuevos métodos o familias.
+
+#### ¿Por qué el esquema ya soporta cualquier método nuevo?
+- La columna `familia TEXT NOT NULL` de `ejecucion_metodo` **no tiene restricción fija**: acepta libremente `'INTEGRACION'`, `'RAICES'`, `'EDO'`, `'INTERPOLACION'`, `'SISTEMAS_LINEALES'` o cualquier otra.
+- La columna `metodo TEXT NOT NULL` acepta cualquier nombre (`'Secante'`, `'Trapecio'`, `'Simpson 1/3'`, `'Romberg'`, `'RK2 en M3'`, `'Lagrange'`, `'Newton por diferencias divididas'`).
+- Las magnitudes calculadas, iteraciones y métricas se serializan en campos JSON genéricos (`valor_json`, `metrica_error_json`, `aproximacion_json`, `datos_json`).
+
+#### ¿Cómo se registra un método?
+Existen dos formas transparentes de conectarlo:
+
+##### Opción A (Recomendada): Inyectar en `results.extraExecutions`
+Desde cualquier función de cálculo en `js/app.js` (o módulo propio), agrega tu método a la lista `extraExecutions` del objeto de resultados antes de guardar:
+
+```javascript
+results.extraExecutions = results.extraExecutions || [];
+results.extraExecutions.push({
+  caso_id: 1,                          // 1: M1, 2: M2, 3: M3, 4: M4
+  familia: 'INTEGRACION',              // Nueva familia
+  metodo: 'Simpson 1/3 Compuesto',     // Nombre del método
+  tolerancia: null,                    // null si no aplica
+  paso: h,                             // Paso de integración h
+  max_iter: nSubintervalos,            // Cantidad de subintervalos
+  convergio: true,                     // true/false
+  estado: 'COMPLETADO',                // 'COMPLETADO' | 'CONVERGIO' | 'DIRECTO' | 'DIVERGIO'
+  tiempo_ms: null,
+  iteraciones: [],                     // Array de iteraciones (o [] si es directo)
+  resumen: {
+    referencia: 'Solución Analítica / Cuadratura Gauss',
+    valor_json: JSON.stringify({
+      integral: I_num,
+      energia_frenado: E_joules
+    }),
+    metrica_error_json: JSON.stringify({
+      error_truncamiento_estimado: errEst
+    }),
+    conclusion_numerica: 'Regla de Simpson 1/3 de orden O(h^4) con convergencia estricta.',
+    conclusion_problema: 'Energía de disipación estimada dentro de la capacidad de los frenos.'
+  },
+  series: [
+    {
+      nombre: 'M1_integracion_simpson',
+      datos_json: JSON.stringify(curvaIntegral.map(p => ({ x: p.t, y: p.val })))
+    }
+  ]
+});
+```
+
+##### Opción B: Registrar directamente en `js/mapper.js` (`buildAllExecutions`)
+Dentro de la función `buildAllExecutions(results, params)` en `js/mapper.js`, agrega un bloque para el módulo correspondiente.
+
+**Ejemplo 1 — Método de la Secante (Familia `RAICES`, Módulo 2):**
+```javascript
+if (r2.secante) {
+  executions.push({
+    caso_id: 2,
+    familia: 'RAICES',
+    metodo: 'Secante',
+    tolerancia: 1e-8,
+    paso: null,
+    max_iter: 100,
+    convergio: r2.secante.convergio,
+    estado: r2.secante.convergio ? 'CONVERGIO' : 'NO_ALCANZO_TOL',
+    tiempo_ms: null,
+    iteraciones: r2.secante.hist.map(it => ({
+      numero: it.k,
+      aproximacion_json: JSON.stringify({ x: it.x, f_x: it.fx }),
+      residual: Math.abs(it.fx),
+      error_abs: it.error,
+      error_rel: it.error / Math.abs(it.x)
+    })),
+    resumen: {
+      referencia: 'Vieta Estable',
+      valor_json: JSON.stringify({ t_star: r2.secante.raiz, iteraciones: r2.secante.it }),
+      metrica_error_json: JSON.stringify({ error_rel: r2.secante.errRel }),
+      conclusion_numerica: 'Secante con orden de convergencia superlineal p ≈ 1.618.',
+      conclusion_problema: 'Cruce del umbral calculado sin necesidad de evaluar derivadas analíticas.'
+    },
+    series: []
+  });
+}
+```
+
+**Ejemplo 2 — Newton por Diferencias Divididas / Lagrange (Familia `INTERPOLACION`, Módulo 4):**
+```javascript
+if (r4.newtonDD) {
+  executions.push({
+    caso_id: 4,
+    familia: 'INTERPOLACION',
+    metodo: 'Newton Diferencias Divididas',
+    tolerancia: null,
+    paso: null,
+    max_iter: r4.newtonDD.grado,
+    convergio: true,
+    estado: 'COMPLETADO',
+    tiempo_ms: null,
+    iteraciones: [],
+    resumen: {
+      referencia: 'Spline Cúbico Natural',
+      valor_json: JSON.stringify({ coeficientes: r4.newtonDD.coefs, evaluacion_media: r4.newtonDD.valMedio }),
+      metrica_error_json: JSON.stringify({ cota_error_teorica: r4.newtonDD.cotaError }),
+      conclusion_numerica: 'Polinomio interpolador calculado mediante tabla triangular de diferencias.',
+      conclusion_problema: 'Reconstrucción de lectura en tramo ciego de telemetría.'
+    },
+    series: [
+      { nombre: 'M4_interp_newton_dd', datos_json: JSON.stringify(r4.newtonDD.puntosCurva) }
+    ]
+  });
+}
+```
+
+**Ejemplo 3 — Romberg / Trapecio Compuesto (Familia `INTEGRACION`, Módulo 1):**
+```javascript
+if (r1.romberg) {
+  executions.push({
+    caso_id: 1,
+    familia: 'INTEGRACION',
+    metodo: 'Integración de Romberg',
+    tolerancia: 1e-8,
+    paso: r1.romberg.h0,
+    max_iter: r1.romberg.niveles,
+    convergio: true,
+    estado: 'CONVERGIO',
+    tiempo_ms: null,
+    iteraciones: r1.romberg.tabla.map((fila, k) => ({
+      numero: k,
+      aproximacion_json: JSON.stringify({ extrapolaciones: fila }),
+      residual: Math.abs(fila[fila.length - 1] - fila[fila.length - 2] || 0),
+      error_abs: null,
+      error_rel: null
+    })),
+    resumen: {
+      referencia: 'Solución Analítica',
+      valor_json: JSON.stringify({ integral: r1.romberg.resultado, orden_acelerado: r1.romberg.orden }),
+      metrica_error_json: JSON.stringify({ error_estimado: r1.romberg.error }),
+      conclusion_numerica: 'Extrapolación de Richardson aplicada sucesivamente a la regla del trapecio.',
+      conclusion_problema: 'Estimación de alta precisión para el trabajo mecánico disipado.'
+    },
+    series: []
+  });
+}
+```
+
+**Ejemplo 4 — Runge-Kutta 2 (Heun) en Módulo 3 (Familia `EDO` / `EDO_SISTEMA`):**
+```javascript
+if (r3.heun) {
+  executions.push({
+    caso_id: 3,
+    familia: 'EDO_SISTEMA',
+    metodo: 'Heun (RK2) Armónico',
+    tolerancia: null,
+    paso: r3.heun.dt,
+    max_iter: r3.heun.steps,
+    convergio: true,
+    estado: 'COMPLETADO',
+    tiempo_ms: null,
+    iteraciones: [],
+    resumen: {
+      referencia: 'RK4 Armónico',
+      valor_json: JSON.stringify({ amplitud_max: r3.heun.Xmax, cumple_seguridad: r3.heun.cumple }),
+      metrica_error_json: JSON.stringify({ error_amplitud_vs_rk4: r3.heun.errAmp }),
+      conclusion_numerica: 'Integración numérica de segundo orden O(dt^2).',
+      conclusion_problema: 'Trayectoria dinámica transversal aproximada con menor coste computacional.'
+    },
+    series: [
+      { nombre: 'M3_oscilacion_heun', datos_json: JSON.stringify(r3.heun.trayectoria) }
+    ]
+  });
+}
+```
+
 ---
 
 ## 🛠️ Stack Tecnológico
