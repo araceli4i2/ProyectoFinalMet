@@ -94,6 +94,14 @@ const Mapper = (() => {
     return sanitizeNumber(Math.abs(e / r));
   }
 
+  function slug(str) {
+    return String(str || '')
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
   // 4. Extractor genérico de ejecuciones para cualquier familia de métodos
   // Soporta: EDO, SISTEMAS_LINEALES, RAICES, ANALITICO, EDO_SISTEMA, INTERPOLACION
   function buildAllExecutions(results, params, scenKey) {
@@ -136,8 +144,8 @@ const Mapper = (() => {
             conclusion_problema: r1.seguro ? 'La parada se efectúa dentro del límite D_seg. Operación SEGURA.' : 'Riesgo crítico: distancia de parada supera el límite de seguridad.'
           },
           series: [
-            { nombre: 'v(t) RK4', datos_json: JSON.stringify(rk4_1.T && rk4_1.V ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.V[i] })) : []) },
-            { nombre: 'x(t) RK4', datos_json: JSON.stringify(rk4_1.T && rk4_1.X ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.X[i] })) : []) }
+            { nombre: 'M1_velocidad_rk4', datos_json: JSON.stringify(rk4_1.T && rk4_1.V ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.V[i] })) : []) },
+            { nombre: 'M1_posicion_rk4', datos_json: JSON.stringify(rk4_1.T && rk4_1.X ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.X[i] })) : []) }
           ]
         });
       }
@@ -169,7 +177,7 @@ const Mapper = (() => {
             conclusion_problema: 'Integración rápida con menor coste computacional.'
           },
           series: [
-            { nombre: 'v(t) Heun', datos_json: JSON.stringify(heu1.T && heu1.V ? heu1.T.map((t, i) => ({ x: t, y: heu1.V[i] })) : []) }
+            { nombre: 'M1_velocidad_heun', datos_json: JSON.stringify(heu1.T && heu1.V ? heu1.T.map((t, i) => ({ x: t, y: heu1.V[i] })) : []) }
           ]
         });
       }
@@ -205,7 +213,7 @@ const Mapper = (() => {
               conclusion_problema: 'Presiones electrohidráulicas balanceadas.'
             },
             series: [
-              { nombre: `Residual ${q.nombre}`, datos_json: JSON.stringify((q.hist || []).map((v, k) => ({ x: k, y: sanitizeNumber(v) }))) }
+              { nombre: `M1_residual_${slug(q.nombre)}`, datos_json: JSON.stringify((q.hist || []).map((v, k) => ({ x: k, y: sanitizeNumber(v) }))) }
             ]
           });
         });
@@ -244,7 +252,8 @@ const Mapper = (() => {
           conclusion_problema: `Cruce del umbral Du = ${p2.Du} proyectado a ${sanitizeNumber(st)} meses.`
         },
         series: [
-          { nombre: 'D(t) Deterioro', datos_json: JSON.stringify((r2.ts || []).map((t, idx) => ({ x: t, y: r2.Dts ? r2.Dts[idx] : null }))) }
+          { nombre: 'M2_deterioro_curva', datos_json: JSON.stringify((r2.ts || []).map((t, idx) => ({ x: t, y: r2.Dts ? r2.Dts[idx] : null }))) },
+          { nombre: 'M2_sensibilidad_sweep', datos_json: JSON.stringify(r2.sweep || []) }
         ]
       });
 
@@ -323,7 +332,9 @@ const Mapper = (() => {
               conclusion_numerica: `${q.nombre} finaliza con ${q.k} iteraciones (estado ${q.estado}).`,
               conclusion_problema: 'Identificación de parámetros de desgaste.'
             },
-            series: []
+            series: [
+              { nombre: `M2_residual_${slug(q.nombre)}`, datos_json: JSON.stringify((q.hist || []).map((v, k) => ({ x: k, y: sanitizeNumber(v) }))) }
+            ]
           });
         });
       }
@@ -359,8 +370,8 @@ const Mapper = (() => {
           conclusion_problema: r3.X <= r3.Alim ? 'Amplitud lateral segura bajo el límite de 0.50 m. CUMPLE.' : 'Alerta crítica: la amplitud supera el límite reglamentario.'
         },
         series: [
-          { nombre: '|X(Ω)| Resonancia', datos_json: JSON.stringify(r3.fr || []) },
-          { nombre: 'x(t) Respuesta lateral', datos_json: JSON.stringify((r3.ts || []).map((t, i) => ({ x: t, y: r3.xs ? r3.xs[i] : null }))) }
+          { nombre: 'M3_oscilacion_tiempo', datos_json: JSON.stringify((r3.ts || []).map((t, i) => ({ x: t, y: r3.xs ? r3.xs[i] : null }))) },
+          { nombre: 'M3_resonancia_espectro', datos_json: JSON.stringify(r3.fr || []) }
         ]
       });
 
@@ -394,7 +405,9 @@ const Mapper = (() => {
               conclusion_numerica: `${q.nombre} en sistema 3x3 escalado (kappa2 = ${sanitizeNumber(c3.kS)}).`,
               conclusion_problema: 'Calibración de masa, amortiguamiento y rigidez.'
             },
-            series: []
+            series: [
+              { nombre: `M3_residual_${slug(q.nombre)}`, datos_json: JSON.stringify((q.hist || []).map((v, k) => ({ x: k, y: sanitizeNumber(v) }))) }
+            ]
           });
         });
       }
@@ -403,8 +416,19 @@ const Mapper = (() => {
     // --- MÓDULO 4: Sensores e interpolación (caso_id = 4) ---
     if (r4) {
       // 4 solucionadores lineales del ajuste por mínimos cuadrados
-      (r4.rows || []).forEach(q => {
+      (r4.rows || []).forEach((q, idx) => {
         const estDb = toDbEstado(q.estado, true);
+        const sers = [
+          { nombre: `M4_residual_${slug(q.nombre)}`, datos_json: JSON.stringify((q.hist || []).map((v, k) => ({ x: k, y: sanitizeNumber(v) }))) }
+        ];
+        if (idx === 0) {
+          if (r4.grid && r4.fit) {
+            sers.push({ nombre: 'M4_ajuste_polinomico', datos_json: JSON.stringify(r4.grid.map((x, i) => ({ x, y: r4.fit[i] }))) });
+          }
+          if (r4.r && r4.y) {
+            sers.push({ nombre: 'M4_muestras_sensores', datos_json: JSON.stringify(r4.r.map((x, i) => ({ x, y: r4.y[i] }))) });
+          }
+        }
         executions.push({
           caso_id: 4,
           familia: 'SISTEMAS_LINEALES',
@@ -429,9 +453,7 @@ const Mapper = (() => {
             conclusion_numerica: `${q.nombre} en ecuaciones normales Vandermonde (kappa2 = ${sanitizeNumber(r4.kap)}).`,
             conclusion_problema: 'Reconstrucción de señal sensorial.'
           },
-          series: [
-            { nombre: `Residual ${q.nombre}`, datos_json: JSON.stringify((q.hist || []).map((v, k) => ({ x: k, y: sanitizeNumber(v) }))) }
-          ]
+          series: sers
         });
       });
 
@@ -456,7 +478,9 @@ const Mapper = (() => {
             conclusion_problema: 'Interpolación suave entre nodos de telemetría.'
           },
           series: [
-            { nombre: 'Spline Natural', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fS ? ri.fS[i] : null }))) }
+            { nombre: 'M4_interp_spline', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fS ? ri.fS[i] : null }))) },
+            { nombre: 'M4_interp_lagrange', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fL ? ri.fL[i] : null }))) },
+            { nombre: 'M4_puntos_ocultos', datos_json: JSON.stringify((ri.xs || []).map((x, i) => ({ x, y: ri.ys ? ri.ys[i] : null }))) }
           ]
         });
       }
@@ -603,7 +627,8 @@ const Mapper = (() => {
     buildAllExecutions,
     toContractV1,
     toContractV2,
-    parseContract
+    parseContract,
+    slug
   };
 })();
 

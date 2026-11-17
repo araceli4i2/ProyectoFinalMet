@@ -260,78 +260,281 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
     alert('Base de datos restablecida a los valores iniciales de fábrica.');
   }
 
-  // Guardar la simulación actual activa en la BD relacional
+  // Helper determinista para ordenación de claves de objetos (evita discrepancias por orden)
+  function sortKeys(obj) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(sortKeys);
+    const sorted = {};
+    Object.keys(obj).sort().forEach(k => {
+      sorted[k] = sortKeys(obj[k]);
+    });
+    return sorted;
+  }
+
+  function normalizeParamJson(param) {
+    if (typeof param === 'string') {
+      try {
+        return JSON.stringify(sortKeys(JSON.parse(param)));
+      } catch (e) {
+        return param;
+      }
+    }
+    if (param && typeof param === 'object') {
+      return JSON.stringify(sortKeys(param));
+    }
+    return '{}';
+  }
+
+  /**
+   * Guarda una simulación de forma transaccional (BEGIN/COMMIT/ROLLBACK)
+   * cumpliendo las 7 tablas del DER:
+   * - Escenarios inmutables: busca si existe un escenario con mismo caso_id, tipo y parametros_json;
+   *   si existe lo reutiliza; si no, inserta uno nuevo. NUNCA UPDATE de parametros_json.
+   * - Inserta simulacion
+   * - Inserta ejecucion_metodo para cualquier familia
+   * - Inserta iteracion_resultado
+   * - Inserta resultado_resumen (relación 1:1)
+   * - Inserta serie_grafico genérica (cualquier lista de { nombre, puntos | datos_json })
+   * Si ocurre un error, ejecuta ROLLBACK sin dejar filas parciales.
+   */
+  function saveSimulationTransaction(data, customDb) {
+    const activeDb = customDb || db;
+    if (!activeDb) throw new Error('Base de datos SQLite no disponible');
+
+    const { escenario, simulacion = {}, ejecuciones = [] } = data || {};
+    if (!escenario) throw new Error('Se requiere especificar la información del escenario.');
+
+    activeDb.run('BEGIN TRANSACTION;');
+    try {
+      let escenarioId = null;
+
+      if (escenario.id) {
+        const check = activeDb.exec(`SELECT id FROM escenario WHERE id = ${Number(escenario.id)};`);
+        if (check && check.length && check[0].values.length) {
+          escenarioId = Number(escenario.id);
+        }
+      }
+
+      if (!escenarioId) {
+        const casoId = Number(escenario.caso_id || 1);
+        const tipo = String(escenario.tipo || 'NORMAL');
+        const pNorm = normalizeParamJson(escenario.parametros_json);
+
+        // Buscar si existe un escenario con idéntico caso_id, tipo y parametros_json
+        const findStmt = activeDb.prepare('SELECT id, parametros_json FROM escenario WHERE caso_id = ? AND tipo = ?;');
+        findStmt.bind([casoId, tipo]);
+        let matchId = null;
+        while (findStmt.step()) {
+          const row = findStmt.getAsObject();
+          const existingNorm = normalizeParamJson(row.parametros_json);
+          if (existingNorm === pNorm) {
+            matchId = row.id;
+            break;
+          }
+        }
+        findStmt.free();
+
+        if (matchId) {
+          escenarioId = matchId;
+        } else {
+          // Inserción de un nuevo escenario inmutable (NUNCA UPDATE)
+          const fuente = escenario.fuente_datos || 'SIMTELE-RISK / Ejecución interactiva';
+          activeDb.run(
+            'INSERT INTO escenario (caso_id, tipo, parametros_json, fuente_datos) VALUES (?, ?, ?, ?);',
+            [casoId, tipo, pNorm, fuente]
+          );
+          escenarioId = activeDb.exec('SELECT last_insert_rowid();')[0].values[0][0];
+        }
+      }
+
+      // 2. Inserción en `simulacion`
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const fecha = simulacion.fecha || now;
+      const usuario = simulacion.usuario_equipo || 'Usuario Web / SIMTELE-RISK';
+      const estado = simulacion.estado || 'COMPLETADO';
+      const coincide = simulacion.coincide !== undefined ? (simulacion.coincide ? 1 : 0) : 1;
+      const diffMax = simulacion.diferencia_max !== undefined ? simulacion.diferencia_max : 0.0;
+      const tolComp = simulacion.tol_comparacion !== undefined ? simulacion.tol_comparacion : 0.001;
+      const origenId = simulacion.simulacion_origen_id || null;
+
+      activeDb.run(
+        `INSERT INTO simulacion (escenario_id, fecha, usuario_equipo, estado, simulacion_origen_id, coincide, diferencia_max, tol_comparacion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+        [escenarioId, fecha, usuario, estado, origenId, coincide, diffMax, tolComp]
+      );
+      const simId = activeDb.exec('SELECT last_insert_rowid();')[0].values[0][0];
+
+      // 3. Inserción de ejecuciones genéricas
+      const savedExecutions = [];
+      for (const ej of ejecuciones) {
+        const familia = ej.familia || 'EDO';
+        const metodo = ej.metodo || 'Método';
+        const tol = ej.tolerancia !== undefined ? ej.tolerancia : null;
+        const paso = ej.paso !== undefined ? ej.paso : null;
+        const maxIter = ej.max_iter !== undefined ? ej.max_iter : null;
+        const convergio = ej.convergio ? 1 : 0;
+        const est = ej.estado || 'COMPLETADO';
+        const tMs = ej.tiempo_ms !== undefined ? ej.tiempo_ms : null;
+
+        activeDb.run(
+          `INSERT INTO ejecucion_metodo (simulacion_id, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [simId, familia, metodo, tol, paso, maxIter, convergio, est, tMs]
+        );
+        const ejId = activeDb.exec('SELECT last_insert_rowid();')[0].values[0][0];
+        savedExecutions.push(ejId);
+
+        // 4. Iteraciones (si las hay)
+        if (Array.isArray(ej.iteraciones) && ej.iteraciones.length > 0) {
+          for (const it of ej.iteraciones) {
+            const num = it.numero !== undefined ? it.numero : 0;
+            const aproxJson = typeof it.aproximacion_json === 'string'
+              ? it.aproximacion_json
+              : JSON.stringify(it.aproximacion_json || {});
+            const res = it.residual !== undefined ? it.residual : null;
+            const eAbs = it.error_abs !== undefined ? it.error_abs : null;
+            const eRel = it.error_rel !== undefined ? it.error_rel : null;
+
+            activeDb.run(
+              `INSERT INTO iteracion_resultado (ejecucion_id, numero, aproximacion_json, residual, error_abs, error_rel)
+               VALUES (?, ?, ?, ?, ?, ?);`,
+              [ejId, num, aproxJson, res, eAbs, eRel]
+            );
+          }
+        }
+
+        // 5. Resumen (relación 1:1)
+        if (ej.resumen) {
+          const ref = ej.resumen.referencia || 'Referencia';
+          const valJson = typeof ej.resumen.valor_json === 'string'
+            ? ej.resumen.valor_json
+            : JSON.stringify(ej.resumen.valor_json || {});
+          const errJson = typeof ej.resumen.metrica_error_json === 'string'
+            ? ej.resumen.metrica_error_json
+            : JSON.stringify(ej.resumen.metrica_error_json || {});
+          const concNum = ej.resumen.conclusion_numerica || null;
+          const concProb = ej.resumen.conclusion_problema || null;
+
+          activeDb.run(
+            `INSERT INTO resultado_resumen (ejecucion_id, referencia, valor_json, metrica_error_json, conclusion_numerica, conclusion_problema)
+             VALUES (?, ?, ?, ?, ?, ?);`,
+            [ejId, ref, valJson, errJson, concNum, concProb]
+          );
+        }
+
+        // 6. Series de datos para gráficos (genérica: cualquier lista de { nombre, puntos | datos_json })
+        if (Array.isArray(ej.series) && ej.series.length > 0) {
+          for (const s of ej.series) {
+            const sNom = s.nombre || 'serie_grafico';
+            let sDatos = s.datos_json;
+            if (!sDatos && s.puntos) {
+              sDatos = JSON.stringify(s.puntos); // sin redondear
+            }
+            if (!sDatos) sDatos = '[]';
+
+            activeDb.run(
+              `INSERT INTO serie_grafico (ejecucion_id, nombre, datos_json)
+               VALUES (?, ?, ?);`,
+              [ejId, sNom, sDatos]
+            );
+          }
+        }
+      }
+
+      activeDb.run('COMMIT;');
+      return {
+        success: true,
+        simulacion_id: simId,
+        escenario_id: escenarioId,
+        ejecuciones_guardadas: savedExecutions.length
+      };
+    } catch (err) {
+      try { activeDb.run('ROLLBACK;'); } catch (rbErr) {}
+      throw err;
+    }
+  }
+
+  // Wrapper asíncrono que persiste en IndexedDB únicamente tras el COMMIT exitoso
+  async function saveSimulation(data, customDb) {
+    const res = saveSimulationTransaction(data, customDb);
+    if (!customDb && typeof persist === 'function') {
+      await persist();
+    }
+    return res;
+  }
+
+  // Guardar la simulación actual activa de la interfaz web
   async function saveCurrentSimulation() {
     if (!db) { alert('Base de datos no disponible'); return; }
     if (!window.LAST || !window.LAST.r1) { alert('Ejecuta primero los cálculos de la simulación'); return; }
 
     try {
       const escCode = (document.getElementById('scen') ? document.getElementById('scen').value : 'N') || 'N';
-      const escTipo = (escCode === 'E') ? 'ESTRES' : (escCode === 'MC' || escCode === 'M') ? 'MAL_CONDICIONADO' : 'NORMAL';
-      
-      // Buscar o insertar el escenario correspondiente
-      // Usaremos caso_id = 1 (o genérico según el módulo que se quiera auditar)
-      // Mapeo: escenario 1 (M1), 4 (M2), 7 (M3), 10 (M4)
-      const escRes = db.exec(`SELECT id FROM escenario WHERE tipo = '${escTipo}' LIMIT 1;`);
-      let escenarioId = 1;
-      if (escRes && escRes.length && escRes[0].values.length) {
-        escenarioId = escRes[0].values[0][0];
+      const escTipo = (typeof window.Mapper !== 'undefined' && window.Mapper.toDbEscenario)
+        ? window.Mapper.toDbEscenario(escCode)
+        : ((escCode === 'E') ? 'ESTRES' : (escCode === 'MC' || escCode === 'M') ? 'MAL_CONDICIONADO' : 'NORMAL');
+
+      const params = {
+        m1: typeof window.readForm === 'function' ? window.readForm('m1') : {},
+        m2: typeof window.readForm === 'function' ? window.readForm('m2') : {},
+        m3: typeof window.readForm === 'function' ? window.readForm('m3') : {},
+        m4: typeof window.readForm === 'function' ? window.readForm('m4') : {},
+        mi: typeof window.readForm === 'function' ? window.readForm('mi') : {}
+      };
+
+      let allExecutions = [];
+      if (typeof window.Mapper !== 'undefined' && typeof window.Mapper.buildAllExecutions === 'function') {
+        allExecutions = window.Mapper.buildAllExecutions(window.LAST, params, escCode);
       }
+
+      const casesMap = {
+        1: { params: params.m1, ejecs: [] },
+        2: { params: params.m2, ejecs: [] },
+        3: { params: params.m3, ejecs: [] },
+        4: { params: { ...params.m4, mi: params.mi }, ejecs: [] }
+      };
+
+      allExecutions.forEach(ej => {
+        const cId = ej.caso_id || 1;
+        if (!casesMap[cId]) casesMap[cId] = { params: {}, ejecs: [] };
+        casesMap[cId].ejecs.push(ej);
+      });
 
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-      const usuario = 'Usuario Web / SIMTELE-RISK';
-      const estado = 'COMPLETADO';
+      let totalSims = 0;
+      let totalEjecs = 0;
 
-      db.run(`
-        INSERT INTO simulacion (escenario_id, fecha, usuario_equipo, estado, coincide, diferencia_max, tol_comparacion)
-        VALUES (${escenarioId}, '${now}', '${usuario}', '${estado}', 1, 0.0, 0.001);
-      `);
+      for (const cIdStr of Object.keys(casesMap)) {
+        const cId = Number(cIdStr);
+        const cData = casesMap[cId];
+        if (!cData.ejecs.length) continue;
 
-      const simRes = db.exec('SELECT last_insert_rowid();');
-      const simId = simRes[0].values[0][0];
+        const res = saveSimulationTransaction({
+          escenario: {
+            caso_id: cId,
+            tipo: escTipo,
+            parametros_json: cData.params,
+            fuente_datos: 'SIMTELE-RISK / Ejecución interactiva'
+          },
+          simulacion: {
+            fecha: now,
+            usuario_equipo: 'Usuario Web / SIMTELE-RISK',
+            estado: 'COMPLETADO',
+            coincide: 1,
+            diferencia_max: 0.0,
+            tol_comparacion: 0.001
+          },
+          ejecuciones: cData.ejecs
+        });
 
-      const { r1, r2, r3, r4 } = window.LAST;
-
-      // Inserción de ejecuciones de métodos
-      if (r1) {
-        db.run(`INSERT INTO ejecucion_metodo (simulacion_id, familia, metodo, paso, max_iter, convergio, estado, tiempo_ms)
-                VALUES (${simId}, 'EDO', 'Runge-Kutta 4', ${r1.p ? r1.p.h : 0.05}, ${r1.num ? r1.num.steps : 200}, 1, 'COMPLETADO', 1.2);`);
-        const ejId = db.exec('SELECT last_insert_rowid();')[0].values[0][0];
-        const valJson = JSON.stringify({ D_total: r1.D, t_det: r1.tdet, d_reaccion: r1.dR, seguro: r1.seguro });
-        db.run(`INSERT INTO resultado_resumen (ejecucion_id, referencia, valor_json, metrica_error_json, conclusion_numerica, conclusion_problema)
-                VALUES (${ejId}, 'Analitica', '${valJson}', '{"error":0.0}', 'Integración temporal validada.', '${r1.seguro ? "Operación dentro de margen de seguridad." : "Supera distancia de seguridad: riesgo físico."}');`);
+        totalSims++;
+        totalEjecs += res.ejecuciones_guardadas;
       }
 
-      if (r2) {
-        db.run(`INSERT INTO ejecucion_metodo (simulacion_id, familia, metodo, tolerancia, max_iter, convergio, estado, tiempo_ms)
-                VALUES (${simId}, 'RAICES', 'Newton-Raphson', 1e-8, 100, 1, 'CONVERGIO', 0.5);`);
-        const ejId = db.exec('SELECT last_insert_rowid();')[0].values[0][0];
-        const valJson = JSON.stringify({ t_star: r2.tStar, sensibilidad: r2.sens, estado: r2.estado });
-        db.run(`INSERT INTO resultado_resumen (ejecucion_id, referencia, valor_json, metrica_error_json, conclusion_numerica, conclusion_problema)
-                VALUES (${ejId}, 'Vieta', '${valJson}', '{"residuo":0.0}', 'Newton converge en forma cuadrática.', 'Cruce proyectado del umbral Du.');`);
-      }
-
-      if (r3) {
-        db.run(`INSERT INTO ejecucion_metodo (simulacion_id, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms)
-                VALUES (${simId}, 'EDO_SISTEMA', 'RK4 Armónico', 1e-10, 0.05, 1200, 1, 'COMPLETADO', 1.5);`);
-        const ejId = db.exec('SELECT last_insert_rowid();')[0].values[0][0];
-        const valJson = JSON.stringify({ X: r3.X, Alim: r3.Alim, omega: r3.w, zeta: r3.z, cumple: r3.X <= r3.Alim });
-        db.run(`INSERT INTO resultado_resumen (ejecucion_id, referencia, valor_json, metrica_error_json, conclusion_numerica, conclusion_problema)
-                VALUES (${ejId}, 'Analitica', '${valJson}', '{"error":0.0}', 'Régimen armónico calculado con exactitud.', '${r3.X <= r3.Alim ? "Amplitud bajo límite reglamentario." : "Amplitud excede límite seguro."}');`);
-      }
-
-      if (r4) {
-        db.run(`INSERT INTO ejecucion_metodo (simulacion_id, familia, metodo, tolerancia, max_iter, convergio, estado, tiempo_ms)
-                VALUES (${simId}, 'SISTEMAS_LINEALES', 'Gradiente conjugado', ${r4.tol || 1e-10}, 50000, 1, 'CONVERGIO', 0.4);`);
-        const ejId = db.exec('SELECT last_insert_rowid();')[0].values[0][0];
-        const valJson = JSON.stringify({ kappa2: r4.kap, xref: r4.xref });
-        db.run(`INSERT INTO resultado_resumen (ejecucion_id, referencia, valor_json, metrica_error_json, conclusion_numerica, conclusion_problema)
-                VALUES (${ejId}, 'LU Directo', '${valJson}', '{"error_rel":0.0}', 'Gradiente Conjugado resuelve el sistema normal SPD.', 'Condicionamiento auditado.');`);
-      }
-
+      // Persistencia en IndexedDB ÚNICAMENTE después de confirmar todos los commits
       await persist();
       renderHistory();
-      alert(`Simulación #${simId} guardada con éxito en la base de datos relacional SQLite.`);
+      alert(`Guardado completado exitosamente: ${totalSims} simulaciones y ${totalEjecs} ejecuciones registradas en SQLite.`);
     } catch (e) {
       console.error(e);
       alert('Error guardando en la base de datos: ' + e.message);
@@ -455,18 +658,34 @@ INSERT INTO caso_estudio (id, nombre, modelo_version, descripcion_fisica) VALUES
   // API pública del módulo DB
   return {
     init,
+    getDB: () => db,
+    setDB: customDb => { db = customDb; },
     persist,
     downloadDB,
     loadDB,
     resetToSeed,
+    saveSimulationTransaction,
+    saveSimulation,
     saveCurrentSimulation,
     loadSimulation,
     deleteSimulation,
-    renderHistory
+    renderHistory,
+    sortKeys,
+    normalizeParamJson
   };
 })();
 
-// Inicializar cuando el DOM esté listo
-document.addEventListener('DOMContentLoaded', () => {
-  DB.init();
-});
+// Exportación para Node.js y navegadores
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = DB;
+}
+if (typeof window !== 'undefined') {
+  window.DB = DB;
+}
+
+// Inicializar en navegador cuando el DOM esté listo
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    DB.init();
+  });
+}

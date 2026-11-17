@@ -161,6 +161,51 @@ La plataforma garantiza **reproducibilidad científica completa**. Permite expor
 
 ---
 
+## 🗄️ Persistencia Relacional y Convenciones de Datos (SQLite + IndexedDB)
+
+La arquitectura de persistencia implementa el **DER acordado de 7 tablas** (`caso_estudio`, `escenario`, `simulacion`, `ejecucion_metodo`, `iteracion_resultado`, `resultado_resumen`, `serie_grafico`) sobre SQLite WebAssembly (`sql.js`), con persistencia local en `IndexedDB`:
+
+### 1. Guardado Transaccional y Atomicidad (ACID)
+- Todo guardado de simulación se encapsula en una única transacción atómica:
+  ```sql
+  BEGIN TRANSACTION;
+  -- Inserción / verificación de escenario
+  -- Inserción de simulacion
+  -- Inserción de ejecucion_metodo (cualquier familia)
+  -- Inserción de iteracion_resultado
+  -- Inserción de resultado_resumen (relación 1:1)
+  -- Inserción de serie_grafico (genérica)
+  COMMIT;
+  ```
+- Si ocurre algún error en cualquier nivel, se dispara automáticamente `ROLLBACK;`, garantizando que la base de datos no quede en estado corrupto ni con filas parciales/huérfanas.
+- La persistencia física en el binario de `IndexedDB` (`db.export()`) se ejecuta **únicamente después de un COMMIT confirmado**.
+
+### 2. Regla de Escenarios Inmutables
+- Los escenarios son inmutables para garantizar trazabilidad histórica:
+  * Si los parámetros coinciden exactamente con un escenario registrado (`caso_id`, `tipo` y `parametros_json` canónicos idénticos), se **reutiliza** el `escenario_id` existente.
+  * Si el usuario modifica cualquier parámetro, se inserta un **NUEVO** escenario en la tabla `escenario`.
+  * **NUNCA** se ejecuta `UPDATE` sobre `parametros_json`.
+
+### 3. Convención de Nomenclatura para Series (`serie_grafico`)
+Para desacoplar el motor de guardado de los módulos numéricos y permitir que futuros métodos se integren sin modificar el esquema SQL, las series se registran de forma genérica:
+- **Estructura**: `{ nombre: string, puntos: Array<{x, y}> | datos_json: string }`.
+- **Formato de nombres**: `<MODULO>_<descripcion>`
+  * **Módulo 1**: `M1_velocidad_rk4`, `M1_posicion_rk4`, `M1_velocidad_heun`, `M1_residual_<metodo>`.
+  * **Módulo 2**: `M2_deterioro_curva`, `M2_sensibilidad_sweep`, `M2_residual_<metodo>`.
+  * **Módulo 3**: `M3_oscilacion_tiempo`, `M3_resonancia_espectro`, `M3_residual_<metodo>`.
+  * **Módulo 4**: `M4_ajuste_polinomico`, `M4_muestras_sensores`, `M4_interp_spline`, `M4_interp_lagrange`, `M4_puntos_ocultos`, `M4_residual_<metodo>`.
+
+### 4. Convención de Enlace para Barridos Paramétricos
+- Aquellas curvas que representan barridos paramétricos globales del módulo:
+  * `M2_sensibilidad_sweep`: Barrido de sensibilidad $\frac{dt^*}{dD_u}$ frente a variación de incremento $\Delta D$.
+  * `M3_resonancia_espectro`: Espectro de amplitud en frecuencia $|X(\Omega)|$.
+- Se enlazan directamente a la **ejecución principal del módulo** (Newton-Raphson en el caso de M2 y RK4 Armónico en M3), garantizando integridad referencial con el método rector del caso de estudio.
+
+### 5. Precisión Numérica Estricta (Unrounded JSON)
+- Las aproximaciones, residuos y series numéricas se serializan mediante `JSON.stringify` nativo **sin redondeo artificial ni truncamiento** (preservación completa en coma flotante IEEE 754 de 64 bits), asegurando bit-exactness al relanzar o auditar simulaciones.
+
+---
+
 ## 🛠️ Stack Tecnológico
 
 - **Frontend Core**: HTML5 Semántico, CSS3 modular (con variables y diseño adaptable para escritorio y dispositivos móviles).
@@ -188,10 +233,13 @@ ProyectoFinalMetodos/
 │   └── fon.jpg             # Imagen de fondo institucional / cabecera
 ├── js/
 │   ├── app.js              # Núcleo de cálculo numérico, solucionadores y reactividad
-│   └── db.js               # Capa de persistencia SQLite (sql.js + IndexedDB)
+│   ├── db.js               # Capa de persistencia SQLite transaccional (sql.js + IndexedDB)
+│   └── mapper.js           # Mapeo bidireccional JSON (v1/v2), estados y extracción genérica
 ├── tests/
 │   ├── test_db.js          # Pruebas automatizadas de esquema, FKs y restricciones
-│   └── test_history.js     # Pruebas automatizadas de consultas y relaciones
+│   ├── test_history.js     # Pruebas automatizadas de consultas y relaciones
+│   ├── test_mapper.js      # Pruebas automatizadas de contratos v1/v2 y sanitización
+│   └── test_paso3a.js      # Pruebas de guardado transaccional, rollback y escenarios inmutables
 ├── vendor/
 │   └── sqljs/              # Binarios locales sql-wasm.js y sql-wasm.wasm (cero CDN)
 ├── index.html              # Interfaz unificada tipo Single-Page Application (SPA)
