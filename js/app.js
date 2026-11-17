@@ -171,21 +171,21 @@ const PRE = {
   N: {
     m1: { model: 'const', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.10, alpha: 0.015, beta: 0.001, Du: 0.30, tmax: 20 },
-    m3: { m: 1000, k: 4000, c: 200, F0: 400, Om: 1.2, Alim: 0.5, Tsim: 60, ruido: 0.05 },
+    m3: { m: 1000, k: 4000, c: 200, F0: 400, Om: 1.2, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 12, grado: 3, a: -1, b: 1, sigma: 0, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-10 },
     mi: INTERP_DEF
   },
   E: {
     m1: { model: 'const', v0: 7, a0: 0.6, amax: 1.50, k: 0.8, c: 0, T: 4, sensor: 0.15, red: 0.55, plc: 0.20, act: 0.30, dseg: 15, h: 0.05 },
     m2: { D0: 0.12, alpha: 0.025, beta: 0.002, Du: 0.30, tmax: 20 },
-    m3: { m: 1000, k: 4000, c: 100, F0: 400, Om: 1.9, Alim: 0.5, Tsim: 60, ruido: 0.05 },
+    m3: { m: 1000, k: 4000, c: 100, F0: 400, Om: 1.9, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 60, grado: 3, a: -1, b: 1, sigma: 0.05, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-12 },
     mi: INTERP_DEF
   },
   MC: {
     m1: { model: 'tang', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.24, alpha: 0.002, beta: 0.0001, Du: 0.2401, tmax: 20 },
-    m3: { m: 1000, k: 4000, c: 20, F0: 40, Om: 2.0, Alim: 0.5, Tsim: 150, ruido: 0.05 },
+    m3: { m: 1000, k: 4000, c: 20, F0: 40, Om: 2.0, Alim: 0.5, Tsim: 150, ruido: 0.05, seed: 2026 },
     m4: { pts: 30, grado: 5, a: 0, b: 1, sigma: 0, seed: 2026, coefs: '1,1,1,1,1,1', tol: 1e-10 },
     mi: INTERP_DEF
   }
@@ -326,7 +326,9 @@ const LAT3 = [['t_sensor', 'Captura del sensor de balanceo', 0.20], ['t_red', 'T
   ['t_PLC', 'Evaluación del umbral de alerta', 0.30], ['t_actuador', 'Activación de la alarma', 0.50]];
 
 function calib3(p) {
-  const { m, k, c, F0 } = p, R = rng(2026), fr = [0.8, 1.2, 1.6, 2.0, 2.4];
+  const { m, k, c, F0 } = p;
+  const seed3 = (p.seed !== undefined && p.seed !== null && p.seed !== '') ? (Number(p.seed) | 0) : 2026;
+  const R = rng(seed3), fr = [0.8, 1.2, 1.6, 2.0, 2.4];
   const Phi = [], y = [], Xm = [];
   fr.forEach(W => {
     const Xt = F0 / Math.hypot(k - m * W * W, c * W);
@@ -479,7 +481,7 @@ const FIELDS = {
     { k: 'Du', l: 'D_u umbral' }, { k: 'tmax', l: 'Horizonte (meses)' }],
   m3: [{ k: 'm', l: 'm (kg)' }, { k: 'k', l: 'k (N/m)' }, { k: 'c', l: 'c (N·s/m)' }, { k: 'F0', l: 'F₀ (N)' },
     { k: 'Om', l: 'Ω viento (rad/s)' }, { k: 'Alim', l: 'A_lim (m)' }, { k: 'Tsim', l: 'T simulación (s)' },
-    { k: 'ruido', l: 'Ruido de medición (± %)' }],
+    { k: 'ruido', l: 'Ruido de medición (± %)' }, { k: 'seed', l: 'Semilla' }],
   m4: [{ k: 'pts', l: 'Puntos m' }, { k: 'grado', l: 'Grado d' }, { k: 'a', l: 'Dominio a' }, { k: 'b', l: 'Dominio b' },
     { k: 'sigma', l: 'σ ruido' }, { k: 'seed', l: 'Semilla' }, { k: 'tol', l: 'Tolerancia' },
     { k: 'coefs', l: 'Coeficientes x* (coma)', t: 'text' }],
