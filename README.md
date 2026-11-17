@@ -164,6 +164,7 @@ La plataforma garantiza **reproducibilidad científica completa**. Permite expor
 ## 🛠️ Stack Tecnológico
 
 - **Frontend Core**: HTML5 Semántico, CSS3 modular (con variables y diseño adaptable para escritorio y dispositivos móviles).
+- **Persistencia Relacional**: SQLite WebAssembly (`sql.js`) con almacenamiento persistente en `IndexedDB`, exportación/importación `.db` y scripts DDL estándar (`db/schema.sql` y `db/seed.sql`).
 - **Lógica Matemática**: JavaScript (ES6+) sin dependencias pesadas de terceros. Implementación desde cero de:
   * Eliminación Gaussiana y Factorización LU.
   * Solucionadores iterativos (Jacobi, Gauss-Seidel, Gradiente Conjugado).
@@ -180,10 +181,19 @@ La plataforma garantiza **reproducibilidad científica completa**. Permite expor
 ProyectoFinalMetodos/
 ├── css/
 │   └── styles.css          # Sistema de diseño, layout responsivo y temas oscuros
+├── db/
+│   ├── schema.sql          # DDL estándar SQLite según DER (7 tablas e índices)
+│   └── seed.sql            # Escenarios predefinidos e historial inicial
 ├── img/
 │   └── fon.jpg             # Imagen de fondo institucional / cabecera
 ├── js/
-│   └── app.js              # Núcleo de cálculo numérico, solucionadores y reactividad
+│   ├── app.js              # Núcleo de cálculo numérico, solucionadores y reactividad
+│   └── db.js               # Capa de persistencia SQLite (sql.js + IndexedDB)
+├── tests/
+│   ├── test_db.js          # Pruebas automatizadas de esquema, FKs y restricciones
+│   └── test_history.js     # Pruebas automatizadas de consultas y relaciones
+├── vendor/
+│   └── sqljs/              # Binarios locales sql-wasm.js y sql-wasm.wasm (cero CDN)
 ├── index.html              # Interfaz unificada tipo Single-Page Application (SPA)
 └── README.md               # Documentación ejecutiva del proyecto
 ```

@@ -938,6 +938,7 @@ function recalcAll() {
     p4.grado = Math.min(8, Math.max(1, Math.round(p4.grado)));
     p4.pts = Math.max(p4.grado + 2, Math.round(p4.pts));
     LAST = { r1: mod1(p1), r2: mod2(p2), r3: mod3(p3), r4: mod4(p4), ri: modInterp(pi) };
+    window.LAST = LAST;
     renderKPIs();
     render1(LAST.r1);
     render2(LAST.r2);
@@ -1091,5 +1092,8 @@ document.addEventListener('DOMContentLoaded', () => {
   on('exMat', 'change', () => renderErrors());
   on('btnExp', 'click', exportJSON);
   on('fileIn', 'change', importJSON);
+  window.applyScenario = applyScenario;
+  window.setForm = setForm;
+  window.recalcAll = recalcAll;
   recalcAll();
 });

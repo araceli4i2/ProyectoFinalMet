@@ -201,6 +201,12 @@ nav a:hover {
   color: var(--orange2)
 }
 
+.btn.sm {
+  padding: 4px 10px;
+  font-size: .78rem;
+  border-radius: 5px;
+}
+
 /* KPI */
 .kpis {
   position: relative;

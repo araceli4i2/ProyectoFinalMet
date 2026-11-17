@@ -73,27 +73,52 @@
 <!-- ================= 02 ARQUITECTURA ================= -->
 <section class="dark2" id="arquitectura"><div class="wrap">
   <div class="kicker">02 · Arquitectura de datos</div>
-  <h2>Modelo <em>entidad-relación</em> y contratos JSON</h2>
-  <p class="sub">Seis tablas garantizan la persistencia completa de cada simulación y su relanzamiento exacto.</p>
-  <div class="grid g3">
-    <div class="card"><h3>caso_estudio</h3><p>id, nombre, módulo, descripción.</p></div>
-    <div class="card"><h3>escenario</h3><p>id, caso_id, nombre (Normal / Estrés / Mal condicionado), parámetros.</p></div>
-    <div class="card"><h3>simulacion</h3><p>id, escenario_id, fecha, parámetros JSON, versión.</p></div>
-    <div class="card"><h3>ejecucion_metodo</h3><p>id, simulación_id, método, tolerancia, iteraciones, estado.</p></div>
-    <div class="card"><h3>iteracion_resultado</h3><p>ejecución_id, k, residual, error, valor aproximado.</p></div>
-    <div class="card"><h3>resultado_resumen</h3><p>simulación_id, κ₂, error absoluto, error relativo, veredicto.</p></div>
+  <h2>Modelo <em>entidad-relación</em> y persistencia SQLite</h2>
+  <p class="sub">Siete tablas normalizadas garantizan la persistencia relacional completa en SQLite (sql.js + IndexedDB) de cada simulación y su relanzamiento exacto.</p>
+  <div class="grid g4" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+    <div class="card"><h3>caso_estudio</h3><p><code>id PK</code>, nombre, modelo_version, descripcion_fisica.</p></div>
+    <div class="card"><h3>escenario</h3><p><code>id PK</code>, <code>caso_id FK</code>, tipo (NORMAL / ESTRES / MAL_CONDICIONADO), parametros_json, fuente_datos.</p></div>
+    <div class="card"><h3>simulacion</h3><p><code>id PK</code>, <code>escenario_id FK</code>, fecha, usuario_equipo, estado, <code>simulacion_origen_id FK</code>, coincide, diferencia_max, tol_comparacion.</p></div>
+    <div class="card"><h3>ejecucion_metodo</h3><p><code>id PK</code>, <code>simulacion_id FK</code>, familia, metodo, tolerancia, paso, max_iter, convergio, estado, tiempo_ms.</p></div>
+    <div class="card"><h3>iteracion_resultado</h3><p><code>id PK</code>, <code>ejecucion_id FK</code>, numero, aproximacion_json, residual, error_abs, error_rel.</p></div>
+    <div class="card"><h3>resultado_resumen</h3><p><code>id PK</code>, <code>ejecucion_id UNIQUE FK</code>, referencia, valor_json, metrica_error_json, conclusion_numerica, conclusion_problema.</p></div>
+    <div class="card"><h3>serie_grafico</h3><p><code>id PK</code>, <code>ejecucion_id FK</code>, nombre, datos_json.</p></div>
   </div>
-  <div class="card mt"><h3>Contrato JSON de simulación</h3>
+
+  <div class="grid g2 mt">
+    <div class="card"><h3>Contrato JSON de intercambio</h3>
 <pre>{
   "contrato": "simtele-risk/simulacion/v1",
   "escenario": "N",
   "parametros": { "m1": { "v0": 5, "a0": 1.25, "...": "..." }, "m2": {}, "m3": {}, "m4": {}, "mi": {} },
-  "resultados": { "modulo1": { "t_det": 4 }, "modulo2": { "t_star": 8.5078 } },
-  "solvers": [ { "metodo": "Jacobi", "iteraciones": 19, "estado": "CONVERGIÓ" } ]
+  "resultados": { "m1": { "D_total": 12.0 }, "m2": { "t_star": 8.5078 } },
+  "solvers": { "m1": [ ... ], "m2": [ ... ], "m3": [ ... ], "m4": [ ... ] }
 }</pre>
-    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn primary" id="btnExp">⬇ Exportar simulación (JSON)</button>
-      <label class="btn ghost" style="cursor:pointer">⬆ Importar JSON<input type="file" id="fileIn" accept=".json" style="display:none"></label>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn primary" id="btnExp">⬇ Exportar simulación (JSON)</button>
+        <label class="btn ghost" style="cursor:pointer">⬆ Importar JSON<input type="file" id="fileIn" accept=".json" style="display:none"></label>
+      </div>
+    </div>
+
+    <div class="card"><h3>Gestión de base de datos relacional (SQLite)</h3>
+      <div style="margin-bottom:12px;font-size:0.9rem" id="dbStatusPill">
+        <span>Cargando motor SQLite WebAssembly...</span>
+      </div>
+      <p class="note" style="margin-bottom:14px">Persistencia binaria real mediante <code>sql.js</code> y almacenamiento local en <code>IndexedDB</code>. Soporta descargas directas del archivo <code>.db</code> y restauración de datos semilla.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn primary" onclick="DB.saveCurrentSimulation()">💾 Guardar simulación actual</button>
+        <button class="btn ghost" onclick="DB.downloadDB()">⬇ Descargar base (.db)</button>
+        <label class="btn ghost" style="cursor:pointer">⬆ Cargar base (.db)<input type="file" id="dbFileInput" accept=".db,.sqlite,.sqlite3" style="display:none" onchange="DB.loadDB(this.files[0])"></label>
+        <button class="btn ghost" style="color:#ffa53d;border-color:rgba(255,165,61,0.4)" onclick="DB.resetToSeed()">🔄 Restaurar seed.sql</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt">
+    <h3>Historial de simulaciones en SQLite</h3>
+    <p class="sub">Registro histórico persistente en base de datos relacional. Haz clic en "Cargar" para restaurar una simulación en la interfaz.</p>
+    <div class="tw mt" id="tHistorial">
+      <p class="note">Cargando historial desde SQLite...</p>
     </div>
   </div>
 </div></section>
@@ -386,6 +411,8 @@
   <div style="font-size:0.8rem;color:#9a9a9a;margin-top:6px">Todos los datos, parámetros y escenarios son 100% sintéticos y de uso estrictamente educativo; no representan mediciones reales de Mi Teleférico.</div>
 </div></footer>
 
+<script src="vendor/sqljs/sql-wasm.js"></script>
+<script src="js/db.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
