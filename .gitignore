@@ -1,0 +1,11 @@
+# Bases de datos SQLite locales generadas en tiempo de ejecucion
+*.db
+*.sqlite
+*.sqlite3
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
+
+# Dependencias (si se instalan localmente)
+node_modules/
