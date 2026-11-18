@@ -367,6 +367,49 @@ PRAGMA user_version = 2;
   }
 
   /**
+   * Determina el estado global de una simulación (simulacion.estado).
+   * Regla de Negocio Numérica:
+   * simulacion.estado = 'DIVERGIO' ÚNICAMENTE si falla el cálculo principal del módulo
+   * (por ejemplo, la EDO principal de detención en M1, la raíz principal en M2, la EDO
+   * aeroelástica armónica en M3, o la resolución de referencia en M4 no producen un resultado finito).
+   * La divergencia de un método auxiliar o comparativo (por ejemplo, Jacobi divergente en
+   * el sistema 3×3 de calibración de M3) se registra exclusivamente en ejecucion_metodo.estado.
+   * Una simulación original y su relanzamiento preservan así el mismo estado.
+   */
+  function determineSimulationStatus(casoId, executions) {
+    if (!Array.isArray(executions) || executions.length === 0) {
+      return 'COMPLETADO';
+    }
+
+    const cId = Number(casoId || 1);
+    let mainExec = null;
+
+    if (cId === 1) {
+      mainExec = executions.find(e => e.familia === 'EDO' && e.metodo.includes('Runge-Kutta 4'))
+              || executions.find(e => e.familia === 'EDO');
+    } else if (cId === 2) {
+      mainExec = executions.find(e => e.familia === 'RAICES' && e.metodo.includes('Newton'))
+              || executions.find(e => e.familia === 'RAICES');
+    } else if (cId === 3) {
+      mainExec = executions.find(e => (e.familia === 'EDO_SISTEMA' || e.familia === 'EDO') && (e.metodo.includes('Armonico') || e.metodo.includes('Armónico') || e.metodo.includes('RK4')))
+              || executions.find(e => e.familia === 'EDO_SISTEMA');
+    } else if (cId === 4) {
+      mainExec = executions.find(e => e.familia === 'INTERPOLACION')
+              || executions.find(e => e.familia === 'SISTEMAS_LINEALES' && e.metodo.includes('LU'));
+    }
+
+    if (mainExec) {
+      if (mainExec.estado === 'DIVERGIO' || mainExec.convergio === false) {
+        return 'DIVERGIO';
+      }
+      return 'COMPLETADO';
+    }
+
+    const allDiverged = executions.length > 0 && executions.every(e => e.estado === 'DIVERGIO');
+    return allDiverged ? 'DIVERGIO' : 'COMPLETADO';
+  }
+
+  /**
    * Guarda una simulación de forma transaccional (BEGIN/COMMIT/ROLLBACK)
    * cumpliendo las 7 tablas del DER:
    * - Escenarios inmutables: busca si existe un escenario con mismo caso_id, tipo y parametros_json;
@@ -432,7 +475,7 @@ PRAGMA user_version = 2;
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
       const fecha = simulacion.fecha || now;
       const usuario = simulacion.usuario_equipo || 'Usuario Web / SIMTELE-RISK';
-      const estado = simulacion.estado || 'COMPLETADO';
+      const estado = simulacion.estado || determineSimulationStatus(escenario.caso_id, ejecuciones);
       const origenId = simulacion.simulacion_origen_id || null;
       // Regla de integridad DER: solo las simulaciones relanzadas (origenId !== null)
       // tienen coincide, diferencia_max y tol_comparacion. Las originales llevan NULL.
@@ -611,7 +654,7 @@ PRAGMA user_version = 2;
           simulacion: {
             fecha: now,
             usuario_equipo: 'Usuario Web / SIMTELE-RISK',
-            estado: 'COMPLETADO',
+            estado: determineSimulationStatus(cId, cData.ejecs),
             simulacion_origen_id: null,
             coincide: null,
             diferencia_max: null,
@@ -1168,8 +1211,7 @@ PRAGMA user_version = 2;
 
     // Registrar la nueva simulación en SQLite
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const hasDiverged = newExecs.some(e => e.estado === 'DIVERGIO');
-    const simEstado = hasDiverged ? 'DIVERGIO' : 'COMPLETADO';
+    const simEstado = determineSimulationStatus(origSim.escenario.caso_id, newExecs);
 
     const saveRes = saveSimulationTransaction({
       escenario: {
@@ -1579,6 +1621,7 @@ PRAGMA user_version = 2;
     deleteSimulation,
     renderHistory,
     resetHistoryFilters,
+    determineSimulationStatus,
     sortKeys,
     normalizeParamJson
   };

@@ -164,11 +164,12 @@ async function runTestPaso3C() {
   assert(compM3.diferencia_max <= 1e-9, `Diferencia máxima ${compM3.diferencia_max} debe ser <= 1e-9`);
 
   const checkRowM3 = db.exec(`
-    SELECT coincide, diferencia_max, simulacion_origen_id FROM simulacion WHERE id = ${newIdM3};
+    SELECT coincide, diferencia_max, simulacion_origen_id, estado FROM simulacion WHERE id = ${newIdM3};
   `)[0].values[0];
   assert(checkRowM3[0] === 1, `coincide en SQLite debe ser 1, obtenido ${checkRowM3[0]}`);
   assert(checkRowM3[2] === origIdM3, `simulacion_origen_id debe ser ${origIdM3}`);
-  console.log('   ✔ Test (b) PASADO: Reproducibilidad determinista de PRNG mulberry32 certificada.\n');
+  assert(checkRowM3[3] === 'COMPLETADO', `estado de simulación relanzada M3 debe ser COMPLETADO (cálculo principal convergió), obtenido ${checkRowM3[3]}`);
+  console.log('   ✔ Test (b) PASADO: Reproducibilidad determinista de PRNG mulberry32 certificada con estado COMPLETADO.\n');
 
   // =========================================================================
   // TEST (c): Prueba negativa: alterar parámetros en la base -> coincide = 0, diff > tol

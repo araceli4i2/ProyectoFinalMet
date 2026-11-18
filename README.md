@@ -473,9 +473,10 @@ El sistema incorpora un motor de certificación de reproducibilidad matemática:
 2. **Métrica de Discrepancia Máxima ($|\Delta_{\max}|$):**
    $$\Delta_{\max} = \max \left( |v_{\text{resumen}} - v_{\text{nuevo}}|, |\text{err}_{\text{orig}} - \text{err}_{\text{nuevo}}|, |r_{\text{iter}} - r_{\text{nuevo}}|, |y_{\text{serie}} - y_{\text{nuevo}}| \right)$$
    Excluye variables de tiempo de ejecución no reproducibles (`tiempo_ms`).
-3. **Criterio de Certificación:**
+3. **Criterio de Certificación y Regla de Estados:**
    - Si $\Delta_{\max} \le \text{tol}$ (por defecto $10^{-9}$, configurable en la interfaz `#relaunchTol`), se asigna `coincide = 1` y estado `COMPLETADO`.
-   - Si $\Delta_{\max} > \text{tol}$, se asigna `coincide = 0` y estado `COMPLETADO` (o `DIVERGIO` si la corrida numérica diverge). El estado `ERROR_VALIDACION` queda reservado únicamente para parámetros de entrada físicamente inválidos.
+   - Si $\Delta_{\max} > \text{tol}$, se asigna `coincide = 0` y estado `COMPLETADO`. El estado `ERROR_VALIDACION` queda reservado únicamente para parámetros de entrada físicamente inválidos.
+   - **Aislamiento de Divergencia (Simulación vs. Método):** `simulacion.estado = DIVERGIO` ocurre **únicamente si falla el cálculo principal del módulo** (por ejemplo, si la EDO de parada en M1 o la raíz de fatiga en M2 no convergen a un valor finito). Si un método auxiliar o de benchmarking comparativo diverge (como ocurre típicamente con Jacobi en el sistema 3×3 de calibración en M3), dicha divergencia queda registrada exclusivamente en `ejecucion_metodo.estado = 'DIVERGIO'`, mientras que la simulación global se registra como `COMPLETADO`. Esta regla garantiza que una simulación original y su relanzamiento conserven exactamente el mismo estado.
 4. **Trazabilidad Visual en Historial:**
    - Si una simulación proviene de un relanzamiento, muestra `#ID ↳ #OrigenID`.
    - La insignia de validación (`✔ Coincide` o `✘ Difiere`) es interactiva: un clic abre el modal `#comparisonModal` con el desglose tabular de discrepancias ordenado de mayor a menor magnitud.
