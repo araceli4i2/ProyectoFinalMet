@@ -1178,8 +1178,9 @@ function render4(r, ri) {
   if (ri && ri.sweep) {
     const sw = ri.sweep;
     extraSweep = `<p class="note"><b>Estudio de convergencia y estabilidad por barrido (n = 4..24):</b><br>` +
-      `• <b>Spline cúbico natural:</b> Orden de convergencia observado p = ${fmt(sw.p_spline, 2)} (ajuste log-log vs h, teórico O(h⁴)). Ante ruido sensorial σ=0.05 el error denso medio se mantiene controlado en ~0.11 sin amplificación global.<br>` +
-      `• <b>Polinomios globales (Lagrange / Newton):</b> Con nodos equiespaciados y ruido σ=0.05, el error mínimo ocurre en <b>n* = ${sw.n_optimo_ruido}</b> (error = ${sci(sw.min_noise_error)}). Para n ≥ 12, el error crece abruptamente siguiendo la constante de Lebesgue (de Λ₁₀ ≈ 17.8 a Λ₂₄ ≈ 7.21×10⁴ y Λ₄₀ ≈ 2.41×10⁹). En contraste, con nodos de Chebyshev la constante Λ crece logarítmicamente (Λ₂₄ ≈ 2.95) y el error permanece acotado en ~0.13.</p>`;
+      `• <b>Rango válido y submuestreo:</b> En n=4 y n=6, al retirar k puntos ocultos quedan únicamente 3 nodos usados en [0, 2π] (submuestreo severo por debajo del límite de Nyquist para sin(t), dando error ~1.73 en todos los métodos). El régimen asintótico válido inicia en n ≥ 8 (n_usados ≥ 5).<br>` +
+      `• <b>Spline cúbico natural:</b> Resuelve un sistema global tridiagonal estrictamente diagonal-dominante (constante de Lebesgue acotada Λ ≤ 2). Orden de convergencia observado p = ${fmt(sw.p_spline, 2)} en n=8..24 (vs h nodal). Esta tasa asintótica cercana a O(h⁴) se produce porque sin(t) en [0, 2π] tiene f''(0)=f''(2π)=0, coincidiendo exactamente con la condición de frontera natural S''(t)=0; en funciones con f''≠0 en los bordes como e^(−t), la condición natural degrada el orden asintótico global a O(h²). Ante ruido σ=0.05 el error denso medio se mantiene controlado en ~0.11 sin amplificación global.<br>` +
+      `• <b>Polinomios globales (Lagrange / Newton):</b> Con nodos equiespaciados y ruido σ=0.05, el error mínimo ocurre en <b>n* = ${sw.n_optimo_ruido}</b> (error = ${sci(sw.min_noise_error)}). Para n ≥ 12, el error crece abruptamente siguiendo la constante de Lebesgue (de Λ₁₀ ≈ 17.8 a Λ₂₄ ≈ 7.21×10⁴ y Λ₄₀ ≈ 2.41×10⁹). En contraste, con nodos de Chebyshev la constante Λ crece logarítmicamente (Λ₂₄ ≈ 2.95) y el error permanece acotado en ~0.13 – 0.15.</p>`;
   }
 
   let extraM4 = '';

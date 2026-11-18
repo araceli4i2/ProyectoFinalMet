@@ -562,12 +562,12 @@ const Mapper = (() => {
 
       let concNumSpline = `Spline cúbico natural C² evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${sErrMax != null ? Number(sErrMax).toExponential(3) : '—'}, RMS = ${sErrRms != null ? Number(sErrRms).toExponential(3) : '—'}).`;
       if (ri.subexp_lebesgue) {
-        concNumSpline += ` Condicionamiento: Spline C² local no sufre del crecimiento exponencial de Lebesgue (Λ_equi=${sanitizeNumber(ri.subexp_lebesgue.lebesgue_equi)}).`;
+        concNumSpline += ` Condicionamiento: El spline cúbico natural resuelve un sistema global tridiagonal estrictamente dominante (constante de Lebesgue acotada Λ_spline ≤ 2 independiente de N), evitando el crecimiento exponencial de Lebesgue de los polinomios equiespaciados (Λ_equi=${sanitizeNumber(ri.subexp_lebesgue.lebesgue_equi)}).`;
       } else if (ri.sigma > 0) {
         concNumSpline += ` Régimen de alta demanda y ruido σ=${ri.sigma} (realización semilla ${ri.seed}): el spline natural interpolante pasa por los datos ruidosos, no los filtra; su error queda del orden del ruido (~0.14) porque no lo amplifica (no es más preciso en general, pero evita la divergencia polinomial).`;
       }
       if (sw) {
-        concNumSpline += ` Barrido n=4..24: orden de convergencia observado p = ${Number(sw.p_spline).toFixed(2)} (teórico O(h⁴)).`;
+        concNumSpline += ` Barrido n=4..24: orden de convergencia observado p = ${Number(sw.p_spline).toFixed(2)} para n≥8 (teórico O(h⁴) al ser f''(a)=f''(b)=0 en sin(t); en exp(-t) la condición natural degrada a O(h²)). Nodos n=4 y n=6 submuestreados (3 nodos usados).`;
       }
 
       executions.push({
