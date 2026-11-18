@@ -507,10 +507,11 @@ const Mapper = (() => {
           series: sers
         });
       });
+    }
 
-      // Interpolación (si existe)
-      if (ri) {
-        // 1. Spline Cúbico Natural
+    // Interpolación (si existe)
+    if (ri) {
+      // 1. Spline Cúbico Natural
         executions.push({
           caso_id: 4,
           familia: 'INTERPOLACION',
@@ -536,6 +537,12 @@ const Mapper = (() => {
         });
 
         // 2. Polinomio de Lagrange
+        const diffLN = (ri.diffLN !== undefined && ri.diffLN !== null)
+          ? ri.diffLN
+          : ((Array.isArray(ri.fL) && Array.isArray(ri.fN) && ri.fL.length === ri.fN.length)
+              ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
+              : 0.0);
+
         executions.push({
           caso_id: 4,
           familia: 'INTERPOLACION',
@@ -549,9 +556,18 @@ const Mapper = (() => {
           iteraciones: [],
           resumen: {
             referencia: 'Función exacta f(x̂)',
-            valor_json: JSON.stringify({ P_xt: sanitizeNumber(ri.L), exacto: sanitizeNumber(ri.ex), grado: (ri.n || 1) - 1 }),
-            metrica_error_json: JSON.stringify({ error_abs: sanitizeNumber(ri.eL), cota_teorica: sanitizeNumber(ri.cota) }),
-            conclusion_numerica: 'Forma canónica de Lagrange evaluada en punto de prueba.',
+            valor_json: JSON.stringify({
+              P_xt: sanitizeNumber(ri.L),
+              exacto: sanitizeNumber(ri.ex),
+              grado: (ri.n || 1) - 1,
+              dif_max_lagrange_newton: sanitizeNumber(diffLN)
+            }),
+            metrica_error_json: JSON.stringify({
+              error_abs: sanitizeNumber(ri.eL),
+              cota_teorica: sanitizeNumber(ri.cota),
+              dif_max_lagrange_newton: sanitizeNumber(diffLN)
+            }),
+            conclusion_numerica: `Forma canónica de Lagrange evaluada en punto de prueba (|P_L - P_N|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}).`,
             conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
           },
           series: [
@@ -593,10 +609,15 @@ const Mapper = (() => {
               P_xt: sanitizeNumber(ri.Nw),
               exacto: sanitizeNumber(ri.ex),
               coeficientes: (ri.cN || []).map(sanitizeNumber),
-              grado: (ri.n || 1) - 1
+              grado: (ri.n || 1) - 1,
+              dif_max_lagrange_newton: sanitizeNumber(diffLN)
             }),
-            metrica_error_json: JSON.stringify({ error_abs: sanitizeNumber(ri.eN), cota_teorica: sanitizeNumber(ri.cota) }),
-            conclusion_numerica: 'Interpolación mediante esquema triangular de diferencias divididas.',
+            metrica_error_json: JSON.stringify({
+              error_abs: sanitizeNumber(ri.eN),
+              cota_teorica: sanitizeNumber(ri.cota),
+              dif_max_lagrange_newton: sanitizeNumber(diffLN)
+            }),
+            conclusion_numerica: `Interpolación mediante esquema triangular de diferencias divididas (|P_N - P_L|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}).`,
             conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'
           },
           series: [
@@ -604,7 +625,6 @@ const Mapper = (() => {
           ]
         });
       }
-    }
 
     // --- EXTENSIBILIDAD: Ejecuciones adicionales inyectadas por módulos de compañeros ---
     if (results && Array.isArray(results.extraExecutions)) {

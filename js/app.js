@@ -453,13 +453,20 @@ function modInterp(p) {
   let prod = 1; xs.forEach(xi => prod *= Math.abs(xt - xi));
   let fact = 1; for (let i = 2; i <= n; i++) fact *= i;
   const grid = linspace(xs[0], xs[n - 1], 220);
+  const fT = grid.map(f);
+  const fL = grid.map(t => lagrangeEval(xs, ys, t));
+  const fN = grid.map(t => newtonEval(xs, cN, t));
+  const fS = grid.map(t => splineEval(S, t));
+  let diffLN = 0;
+  for (let i = 0; i < grid.length; i++) {
+    const d = Math.abs(fL[i] - fN[i]);
+    if (d > diffLN) diffLN = d;
+  }
   return {
     xs, ys, n, xt, L, Nw, Sv, ex, cota: p.M * prod / fact,
-    cN, tableDD,
+    cN, tableDD, diffLN,
     eL: Math.abs(ex - L), eN: Math.abs(ex - Nw), eS: Math.abs(ex - Sv),
-    grid, fT: grid.map(f), fL: grid.map(t => lagrangeEval(xs, ys, t)),
-    fN: grid.map(t => newtonEval(xs, cN, t)),
-    fS: grid.map(t => splineEval(S, t))
+    grid, fT, fL, fN, fS
   };
 }
 
