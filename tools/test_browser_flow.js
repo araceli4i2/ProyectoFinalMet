@@ -185,7 +185,7 @@ async function testBrowserFlow() {
   if (delta.simulaciones !== 4) throw new Error(`Esperadas +4 simulaciones, obtenidas +${delta.simulaciones}`);
   if (delta.ejecuciones !== 25) throw new Error(`Esperadas +25 ejecuciones, obtenidas +${delta.ejecuciones}`);
   if (delta.iteraciones !== 1498) throw new Error(`Esperadas +1498 iteraciones, obtenidas +${delta.iteraciones}`);
-  if (delta.series !== 34) throw new Error(`Esperadas +34 series, obtenidas +${delta.series}`);
+  if (delta.series !== 48) throw new Error(`Esperadas +48 series, obtenidas +${delta.series}`);
 
   console.log('✔ C1 y C2 VERIFICADOS EXITOSAMENTE EN ENTORNO SIMULADO DE NAVEGADOR.');
 }

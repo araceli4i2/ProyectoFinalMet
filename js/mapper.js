@@ -536,11 +536,38 @@ const Mapper = (() => {
         error_nominal_max: sanitizeNumber(ri.subexp_lebesgue.error_nominal_max)
       } : null;
 
+      const sw = ri.sweep || null;
+      const swSeriesSpline = sw ? [
+        { nombre: 'M4_barrido_error_equi_spline', datos_json: JSON.stringify(sw.series.M4_barrido_error_equi_spline || []) },
+        { nombre: 'M4_barrido_error_cheb_spline', datos_json: JSON.stringify(sw.series.M4_barrido_error_cheb_spline || []) },
+        { nombre: 'M4_barrido_lebesgue_equi', datos_json: JSON.stringify(sw.series.M4_barrido_lebesgue_equi || []) },
+        { nombre: 'M4_barrido_lebesgue_cheb', datos_json: JSON.stringify(sw.series.M4_barrido_lebesgue_cheb || []) },
+        { nombre: 'M4_barrido_ruido_media_spline', datos_json: JSON.stringify(sw.series.M4_barrido_ruido_media_spline || []) },
+        { nombre: 'M4_barrido_ruido_std_spline', datos_json: JSON.stringify(sw.series.M4_barrido_ruido_std_spline || []) }
+      ] : [];
+
+      const swSeriesLagrange = sw ? [
+        { nombre: 'M4_barrido_error_equi_lagrange', datos_json: JSON.stringify(sw.series.M4_barrido_error_equi_lagrange || []) },
+        { nombre: 'M4_barrido_error_cheb_lagrange', datos_json: JSON.stringify(sw.series.M4_barrido_error_cheb_lagrange || []) },
+        { nombre: 'M4_barrido_ruido_media_lagrange', datos_json: JSON.stringify(sw.series.M4_barrido_ruido_media_lagrange || []) },
+        { nombre: 'M4_barrido_ruido_std_lagrange', datos_json: JSON.stringify(sw.series.M4_barrido_ruido_std_lagrange || []) }
+      ] : [];
+
+      const swSeriesNewton = sw ? [
+        { nombre: 'M4_barrido_error_equi_newton_dd', datos_json: JSON.stringify(sw.series.M4_barrido_error_equi_newton_dd || []) },
+        { nombre: 'M4_barrido_error_cheb_newton_dd', datos_json: JSON.stringify(sw.series.M4_barrido_error_cheb_newton_dd || []) },
+        { nombre: 'M4_barrido_ruido_media_newton_dd', datos_json: JSON.stringify(sw.series.M4_barrido_ruido_media_newton_dd || []) },
+        { nombre: 'M4_barrido_ruido_std_newton_dd', datos_json: JSON.stringify(sw.series.M4_barrido_ruido_std_newton_dd || []) }
+      ] : [];
+
       let concNumSpline = `Spline cúbico natural C² evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${sErrMax != null ? Number(sErrMax).toExponential(3) : '—'}, RMS = ${sErrRms != null ? Number(sErrRms).toExponential(3) : '—'}).`;
       if (ri.subexp_lebesgue) {
         concNumSpline += ` Condicionamiento: Spline C² local no sufre del crecimiento exponencial de Lebesgue (Λ_equi=${sanitizeNumber(ri.subexp_lebesgue.lebesgue_equi)}).`;
       } else if (ri.sigma > 0) {
         concNumSpline += ` Régimen de alta demanda y ruido σ=${ri.sigma} (realización semilla ${ri.seed}): el spline natural interpolante pasa por los datos ruidosos, no los filtra; su error queda del orden del ruido (~0.14) porque no lo amplifica (no es más preciso en general, pero evita la divergencia polinomial).`;
+      }
+      if (sw) {
+        concNumSpline += ` Barrido n=4..24: orden de convergencia observado p = ${Number(sw.p_spline).toFixed(2)} (teórico O(h⁴)).`;
       }
 
       executions.push({
@@ -566,7 +593,10 @@ const Mapper = (() => {
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
             semilla: ri.seed,
-            subexp_lebesgue: subexp
+            subexp_lebesgue: subexp,
+            orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
+            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null,
+            min_noise_error: sw ? sanitizeNumber(sw.min_noise_error) : null
           }),
           metrica_error_json: JSON.stringify({
             error_maximo: sErrMax,
@@ -576,7 +606,9 @@ const Mapper = (() => {
             cota_lagrange: sanitizeNumber(ri.cota),
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
-            subexp_lebesgue: subexp
+            subexp_lebesgue: subexp,
+            orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
+            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null
           }),
           conclusion_numerica: concNumSpline,
           conclusion_problema: 'Interpolación suave entre nodos de telemetría sin oscilaciones espurias.'
@@ -586,7 +618,8 @@ const Mapper = (() => {
           { nombre: 'M4_curva_exacta', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fT ? ri.fT[i] : null }))) },
           { nombre: 'M4_nodos_usados', datos_json: JSON.stringify((ri.xs || []).map((x, i) => ({ x, y: ri.ys ? ri.ys[i] : null }))) },
           { nombre: 'M4_puntos_ocultos', datos_json: JSON.stringify(sPts.map(p => ({ x: p.x, y: sanitizeNumber(p.exacto) }))) },
-          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(sPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) }
+          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(sPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) },
+          ...swSeriesSpline
         ]
       });
 
@@ -602,6 +635,9 @@ const Mapper = (() => {
         concNumLagrange += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
       } else if (ri.sigma > 0) {
         concNumLagrange += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
+      }
+      if (sw) {
+        concNumLagrange += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en n*=${sw.n_optimo_ruido} y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.21e4).`;
       }
 
       executions.push({
@@ -629,7 +665,10 @@ const Mapper = (() => {
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
             semilla: ri.seed,
-            subexp_lebesgue: subexp
+            subexp_lebesgue: subexp,
+            orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
+            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null,
+            min_noise_error: sw ? sanitizeNumber(sw.min_noise_error) : null
           }),
           metrica_error_json: JSON.stringify({
             error_maximo: lErrMax,
@@ -640,14 +679,17 @@ const Mapper = (() => {
             dif_max_lagrange_newton: sanitizeNumber(diffLN),
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
-            subexp_lebesgue: subexp
+            subexp_lebesgue: subexp,
+            orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
+            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null
           }),
           conclusion_numerica: concNumLagrange,
           conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
         },
         series: [
           { nombre: 'M4_interp_lagrange', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fL ? ri.fL[i] : null }))) },
-          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(lPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) }
+          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(lPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) },
+          ...swSeriesLagrange
         ]
       });
 
@@ -663,6 +705,9 @@ const Mapper = (() => {
         concNumNewton += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
       } else if (ri.sigma > 0) {
         concNumNewton += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
+      }
+      if (sw) {
+        concNumNewton += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en n*=${sw.n_optimo_ruido} y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.21e4).`;
       }
 
       const newtonIters = [];
@@ -707,7 +752,10 @@ const Mapper = (() => {
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
             semilla: ri.seed,
-            subexp_lebesgue: subexp
+            subexp_lebesgue: subexp,
+            orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
+            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null,
+            min_noise_error: sw ? sanitizeNumber(sw.min_noise_error) : null
           }),
           metrica_error_json: JSON.stringify({
             error_maximo: nErrMax,
@@ -718,14 +766,17 @@ const Mapper = (() => {
             dif_max_lagrange_newton: sanitizeNumber(diffLN),
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
-            subexp_lebesgue: subexp
+            subexp_lebesgue: subexp,
+            orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
+            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null
           }),
           conclusion_numerica: concNumNewton,
           conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'
         },
         series: [
           { nombre: 'M4_interp_newton_dd', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fN ? ri.fN[i] : (ri.fL ? ri.fL[i] : null) }))) },
-          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(nPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) }
+          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(nPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) },
+          ...swSeriesNewton
         ]
       });
     }

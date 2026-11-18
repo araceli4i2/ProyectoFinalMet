@@ -29,13 +29,14 @@ const doc = {
 const win = { addEventListener: () => { }, document: doc };
 const sandbox = { window: win, document: doc, console, setTimeout: () => { }, clearTimeout: () => { }, Math };
 vm.createContext(sandbox);
-vm.runInContext(appCode + '; this.PRE = PRE; this.SYS = SYS; this.solverRows = solverRows; this.mod1 = mod1; this.mod2 = mod2; this.mod3 = mod3; this.mod4 = mod4; this.newtonCoef = newtonCoef; this.newtonEval = newtonEval; this.lagrangeEval = lagrangeEval; this.modInterp = modInterp; this.lebesgueConstant = lebesgueConstant;', sandbox);
+vm.runInContext(appCode + '; this.PRE = PRE; this.SYS = SYS; this.solverRows = solverRows; this.mod1 = mod1; this.mod2 = mod2; this.mod3 = mod3; this.mod4 = mod4; this.newtonCoef = newtonCoef; this.newtonEval = newtonEval; this.lagrangeEval = lagrangeEval; this.modInterp = modInterp; this.lebesgueConstant = lebesgueConstant; this.sweepInterpolation = sweepInterpolation;', sandbox);
 
 const newtonCoef = sandbox.newtonCoef;
 const newtonEval = sandbox.newtonEval;
 const lagrangeEval = sandbox.lagrangeEval;
 const modInterp = sandbox.modInterp;
 const lebesgueConstant = sandbox.lebesgueConstant;
+const sweepInterpolation = sandbox.sweepInterpolation;
 const PRE = sandbox.PRE;
 const mod4 = sandbox.mod4;
 
@@ -277,9 +278,9 @@ assert(lagSeries.includes('M4_error_por_punto'), 'Lagrange debe incluir M4_error
 assert(newtSeries.includes('M4_interp_newton_dd'), 'Newton debe incluir M4_interp_newton_dd');
 assert(newtSeries.includes('M4_error_por_punto'), 'Newton debe incluir M4_error_por_punto');
 
-assert(splineExec.series.length === 5, 'Spline debe tener 5 series');
-assert(lagExec.series.length === 2, 'Lagrange debe tener 2 series');
-assert(newtExec.series.length === 2, 'Newton debe tener 2 series');
+assert(splineExec.series.length === 11, `Spline debe tener 11 series (5 base + 6 barrido, obtenido ${splineExec.series.length})`);
+assert(lagExec.series.length === 6, `Lagrange debe tener 6 series (2 base + 4 barrido, obtenido ${lagExec.series.length})`);
+assert(newtExec.series.length === 6, `Newton debe tener 6 series (2 base + 4 barrido, obtenido ${newtExec.series.length})`);
 
 console.log('   ✔ Todas las 7 series requeridas verificadas con sus nombres exactos.');
 
@@ -407,6 +408,55 @@ async function runFase3Tests() {
   }
   console.log('   ✔ Todos los 3 escenarios relanzados exitosamente con coincide = 1 y diferencia_max <= 1e-9.');
   console.log('   ✔ Ruido gaussiano en Estrés es 100% reproducible y determinista.');
+
+  console.log('\n15. Verificando barrido de nodos y convergencia del Spline Natural (Fase 4)...');
+  const sw = sweepInterpolation({ func: 'sin', a: 0, b: 2 * Math.PI }, 24);
+  assert(sw && sw.series, 'sweepInterpolation debe devolver un objeto con series');
+
+  console.log(`   -> Orden de convergencia del spline natural p = ${sw.p_spline.toFixed(3)} (teórico ~4.0)`);
+  assert(sw.p_spline >= 3.5 && sw.p_spline <= 5.2, `El orden de convergencia observado del spline debe ser cercano a 4 (obtenido ${sw.p_spline})`);
+
+  console.log(`   -> Punto óptimo de bifurcación con ruido n* = ${sw.n_optimo_ruido} (error mín = ${sw.min_noise_error.toExponential(4)})`);
+  assert(sw.n_optimo_ruido === 10, `El punto de mínimo error ante ruido sigma=0.05 debe ser n*=10 (obtenido ${sw.n_optimo_ruido})`);
+
+  // Verificar series requeridas
+  const reqSeries = [
+    'M4_barrido_error_equi_lagrange',
+    'M4_barrido_error_equi_newton_dd',
+    'M4_barrido_error_equi_spline',
+    'M4_barrido_error_cheb_lagrange',
+    'M4_barrido_error_cheb_newton_dd',
+    'M4_barrido_error_cheb_spline',
+    'M4_barrido_lebesgue_equi',
+    'M4_barrido_lebesgue_cheb',
+    'M4_barrido_ruido_media_lagrange',
+    'M4_barrido_ruido_std_lagrange',
+    'M4_barrido_ruido_media_newton_dd',
+    'M4_barrido_ruido_std_newton_dd',
+    'M4_barrido_ruido_media_spline',
+    'M4_barrido_ruido_std_spline'
+  ];
+  for (const sName of reqSeries) {
+    assert(Array.isArray(sw.series[sName]) && sw.series[sName].length === 11, `Serie ${sName} debe existir con 11 puntos (n=4..24 paso 2)`);
+  }
+  console.log(`   ✔ Todas las 14 series de barrido verificadas (11 puntos cada una).`);
+
+  // Verificar constantes de Lebesgue
+  const lebEqui24 = sw.series.M4_barrido_lebesgue_equi.find(p => p.x === 24).y;
+  const lebCheb24 = sw.series.M4_barrido_lebesgue_cheb.find(p => p.x === 24).y;
+  console.log(`   -> Constantes de Lebesgue en n=24: Equi = ${lebEqui24.toFixed(1)}, Cheb = ${lebCheb24.toFixed(2)}`);
+  assert(lebEqui24 > 50000, `Lebesgue equiespaciado en n=24 debe ser > 50000 (obtenido ${lebEqui24})`);
+  assert(lebCheb24 < 3.5, `Lebesgue Chebyshev en n=24 debe ser < 3.5 (obtenido ${lebCheb24})`);
+
+  // Verificar explosión de error polinomial ante ruido vs estabilidad del spline
+  const noiseL_10 = sw.series.M4_barrido_ruido_media_lagrange.find(p => p.x === 10).y;
+  const noiseL_24 = sw.series.M4_barrido_ruido_media_lagrange.find(p => p.x === 24).y;
+  const noiseS_24 = sw.series.M4_barrido_ruido_media_spline.find(p => p.x === 24).y;
+  console.log(`   -> Ruido medio Lagrange: n=10 -> ${noiseL_10.toFixed(4)}, n=24 -> ${noiseL_24.toFixed(2)}`);
+  console.log(`   -> Ruido medio Spline natural: n=24 -> ${noiseS_24.toFixed(4)}`);
+  assert(noiseL_24 > 500, `Lagrange con ruido en n=24 debe explotar (>500 por Lebesgue, obtenido ${noiseL_24})`);
+  assert(noiseS_24 < 0.25, `Spline con ruido en n=24 debe permanecer acotado (<0.25, obtenido ${noiseS_24})`);
+  console.log('   ✔ Comportamiento de bifurcación de estabilidad y constante de Lebesgue validado numéricamente.');
 
   console.log('\n✅ PRUEBA DE VERIFICACIÓN MANUAL DE M4 Y ESCENARIOS COMPLETADA AL 100% SATISFACTORIAMENTE.');
 }
