@@ -190,7 +190,7 @@ const SYS = {
 };
 
 /* ---------- PRESETS DE ESCENARIO ---------- */
-const INTERP_DEF = { func: 'sin', nodos: '0, 1.5708, 3.1416', xt: 0.7854, M: 1 };
+const INTERP_DEF = { func: 'sin', a: 0, b: 3.141592653589793, n: 7, k: 3, M: 1 };
 const PRE = {
   N: {
     m1: { model: 'const', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
@@ -437,36 +437,172 @@ function mod4(p) {
   return { r, y, yc, A, b, x0, xref, kap, lmin: ev[0], lmax: ev[n - 1], rows, cgRow, grid, fit, fitTrue, eStat, n, tol: p.tol };
 }
 
+function evalOnPoints(evalFn, X_ocultos, f) {
+  const puntos = [];
+  let sumSq = 0;
+  let maxAbs = -1;
+  let peorPunto = null;
+  for (const x of X_ocultos) {
+    const exacto = f(x);
+    const valor = evalFn(x);
+    const error_abs = Math.abs(exacto - valor);
+    const error_rel = (exacto != null && Math.abs(exacto) > 1e-14) ? error_abs / Math.abs(exacto) : null;
+    sumSq += error_abs * error_abs;
+    if (error_abs > maxAbs) {
+      maxAbs = error_abs;
+      peorPunto = { x, exacto, valor, error_abs, error_rel };
+    }
+    puntos.push({ x, exacto, valor, error_abs, error_rel });
+  }
+  const k = X_ocultos.length;
+  const error_rms = k > 0 ? Math.sqrt(sumSq / k) : 0;
+  const error_max = k > 0 ? maxAbs : 0;
+  return { puntos, error_max, error_rms, peor_punto: peorPunto };
+}
+
 function modInterp(p) {
+  p = p || {};
   const f = p.func === 'sin' ? Math.sin : (t => Math.exp(-t));
-  let xs = String(p.nodos || '').split(/[,;\s]+/).map(Number).filter(v => isFinite(v));
-  xs = [...new Set(xs)].sort((a, b) => a - b);
+  let a = (p.a !== undefined && p.a !== null && p.a !== '') ? Number(p.a) : 0;
+  let b = (p.b !== undefined && p.b !== null && p.b !== '') ? Number(p.b) : Math.PI;
+  if (!isFinite(a)) a = 0;
+  if (!isFinite(b)) b = Math.PI;
+  const M = (p.M !== undefined && p.M !== null && p.M !== '') ? Number(p.M) : 1;
+
+  let allNodes = [];
+  let customNodes = null;
+  if (p.nodos !== undefined && p.nodos !== null && String(p.nodos).trim() !== '') {
+    const parsed = String(p.nodos).split(/[,;\s]+/).map(Number).filter(v => isFinite(v));
+    const u = [...new Set(parsed)].sort((x, y) => x - y);
+    if (u.length >= 2) customNodes = u;
+  }
+
+  // Compatibilidad hacia atrás: si se pasan nodos explícitos y un xt exterior (k=1)
+  let isLegacyExternalPoint = false;
+  if (customNodes && p.xt !== undefined && p.xt !== null && p.xt !== '') {
+    const xtNum = Number(p.xt);
+    if (isFinite(xtNum) && !customNodes.some(x => Math.abs(x - xtNum) < 1e-12)) {
+      isLegacyExternalPoint = true;
+    }
+  }
+
+  let xs = []; // nodos usados
+  let X_ocultos = []; // puntos ocultos
+  let indicesOcultos = [];
+
+  if (isLegacyExternalPoint) {
+    xs = customNodes.slice();
+    X_ocultos = [Number(p.xt)];
+    indicesOcultos = [];
+    allNodes = [...xs, Number(p.xt)].sort((x, y) => x - y);
+  } else {
+    if (customNodes) {
+      allNodes = customNodes;
+    } else {
+      let n = parseInt(p.n, 10);
+      if (isNaN(n) || n < 3) n = 7;
+      allNodes = linspace(a, b, n);
+    }
+    const N = allNodes.length;
+    if (N < 2) return null;
+
+    if (N === 2) {
+      xs = allNodes.slice();
+      X_ocultos = [];
+    } else {
+      let kInput = p.k;
+      let explicitIndices = [];
+      if (Array.isArray(kInput)) {
+        explicitIndices = kInput.map(Number).filter(v => Number.isInteger(v) && v > 0 && v < N - 1);
+        explicitIndices = [...new Set(explicitIndices)].sort((x, y) => x - y);
+      } else if (typeof kInput === 'string' && (kInput.includes(',') || kInput.includes('[') || kInput.startsWith('idx:'))) {
+        const clean = kInput.replace(/[\[\]]/g, '').replace(/^idx:/, '');
+        explicitIndices = clean.split(/[,;\s]+/).map(Number).filter(v => Number.isInteger(v) && v > 0 && v < N - 1);
+        explicitIndices = [...new Set(explicitIndices)].sort((x, y) => x - y);
+      }
+      if (explicitIndices.length > 0) {
+        indicesOcultos = explicitIndices;
+      } else {
+        let kVal = (typeof kInput === 'number') ? kInput : parseInt(kInput, 10);
+        if (isNaN(kVal) || kVal < 1) kVal = 3;
+        kVal = Math.min(kVal, N - 2);
+        if (kVal === 1) {
+          indicesOcultos = [Math.floor(N / 2)];
+        } else {
+          const idxs = [];
+          for (let j = 0; j < kVal; j++) {
+            idxs.push(Math.round(1 + j * (N - 3) / (kVal - 1)));
+          }
+          indicesOcultos = [...new Set(idxs)].sort((x, y) => x - y);
+        }
+      }
+      X_ocultos = indicesOcultos.map(i => allNodes[i]);
+      xs = allNodes.filter((_, i) => !indicesOcultos.includes(i));
+    }
+  }
+
   if (xs.length < 2) return null;
-  const ys = xs.map(f), n = xs.length, xt = p.xt;
-  const L = lagrangeEval(xs, ys, xt);
+  const ys = xs.map(f), n = xs.length;
+
   const nwt = newtonCoef(xs, ys);
   const cN = nwt.coefs || nwt;
   const tableDD = nwt.table;
-  const Nw = newtonEval(xs, cN, xt);
-  const S = splineNatural(xs, ys), Sv = splineEval(S, xt);
-  const ex = f(xt);
-  let prod = 1; xs.forEach(xi => prod *= Math.abs(xt - xi));
+  const S = splineNatural(xs, ys);
+
+  const eval_lagrange = evalOnPoints(x => lagrangeEval(xs, ys, x), X_ocultos, f);
+  const eval_newton = evalOnPoints(x => newtonEval(xs, cN, x), X_ocultos, f);
+  const eval_spline = evalOnPoints(x => splineEval(S, x), X_ocultos, f);
+
+  // Cota teórica de error polinomial M/n! * prod |x - xi|
   let fact = 1; for (let i = 2; i <= n; i++) fact *= i;
-  const grid = linspace(xs[0], xs[n - 1], 220);
+  let cotaMax = 0;
+  X_ocultos.forEach(x => {
+    let prod = 1;
+    xs.forEach(xi => prod *= Math.abs(x - xi));
+    const c = M * prod / fact;
+    if (c > cotaMax) cotaMax = c;
+  });
+
+  const domMin = Math.min(xs[0], ...(X_ocultos.length ? X_ocultos : []));
+  const domMax = Math.max(xs[n - 1], ...(X_ocultos.length ? X_ocultos : []));
+  const grid = linspace(domMin, domMax, 220);
   const fT = grid.map(f);
   const fL = grid.map(t => lagrangeEval(xs, ys, t));
   const fN = grid.map(t => newtonEval(xs, cN, t));
   const fS = grid.map(t => splineEval(S, t));
+
   let diffLN = 0;
   for (let i = 0; i < grid.length; i++) {
     const d = Math.abs(fL[i] - fN[i]);
     if (d > diffLN) diffLN = d;
   }
+
+  const peorL = eval_lagrange.peor_punto || (X_ocultos.length ? { x: X_ocultos[0], exacto: f(X_ocultos[0]), valor: lagrangeEval(xs, ys, X_ocultos[0]) } : { x: xs[0], exacto: ys[0], valor: ys[0] });
+  const xtRef = peorL.x;
+  const exRef = peorL.exacto;
+  const LRef = peorL.valor;
+  const NwRef = eval_newton.peor_punto ? eval_newton.peor_punto.valor : newtonEval(xs, cN, xtRef);
+  const SvRef = eval_spline.peor_punto ? eval_spline.peor_punto.valor : splineEval(S, xtRef);
+
   return {
-    xs, ys, n, xt, L, Nw, Sv, ex, cota: p.M * prod / fact,
+    xs, ys, n,
+    nodos_usados: xs,
+    allNodes,
+    puntos_ocultos: X_ocultos,
+    indicesOcultos,
+    k: X_ocultos.length,
+    xt: xtRef,
+    ex: exRef,
+    L: LRef,
+    Nw: NwRef,
+    Sv: SvRef,
+    eL: eval_lagrange.error_max,
+    eN: eval_newton.error_max,
+    eS: eval_spline.error_max,
+    cota: cotaMax,
     cN, tableDD, diffLN,
-    eL: Math.abs(ex - L), eN: Math.abs(ex - Nw), eS: Math.abs(ex - Sv),
-    grid, fT, fL, fN, fS
+    eval_lagrange, eval_newton, eval_spline,
+    grid, fT, fL, fN, fS, f
   };
 }
 
@@ -526,8 +662,14 @@ const FIELDS = {
   m4: [{ k: 'pts', l: 'Puntos m' }, { k: 'grado', l: 'Grado d' }, { k: 'a', l: 'Dominio a' }, { k: 'b', l: 'Dominio b' },
     { k: 'sigma', l: 'σ ruido' }, { k: 'seed', l: 'Semilla' }, { k: 'tol', l: 'Tolerancia' },
     { k: 'coefs', l: 'Coeficientes x* (coma)', t: 'text' }],
-  mi: [{ k: 'func', l: 'Función f', t: 'select', o: [['sin', 'sen(t)'], ['exp', 'e^(−t)']] },
-    { k: 'nodos', l: 'Nodos x_i (coma)', t: 'text' }, { k: 'xt', l: 'Valor oculto x̂' }, { k: 'M', l: 'M = máx |f⁽ⁿ⁾|' }]
+  mi: [
+    { k: 'func', l: 'Función base f', t: 'select', o: [['sin', 'sen(t)'], ['exp', 'e^(−t)']] },
+    { k: 'a', l: 'Intervalo a' },
+    { k: 'b', l: 'Intervalo b' },
+    { k: 'n', l: 'Total de nodos n' },
+    { k: 'k', l: 'Puntos ocultos k (o índices)', t: 'text' },
+    { k: 'M', l: 'M = máx |f⁽ⁿ⁾|' }
+  ]
 };
 const CONTAINER = { m1: 'fm1', m2: 'fm2', m3: 'fm3', m4: 'fm4', mi: 'fmi' };
 
@@ -557,8 +699,8 @@ function setForm(key, obj) {
 function applyScenario() { const S = $('scen').value; ['m1', 'm2', 'm3', 'm4', 'mi'].forEach(m => setForm(m, PRE[S][m])); schedule(); }
 function applyPreset(m) { setForm(m, PRE[$('scen').value][m]); schedule(); }
 function presetInterp(i) {
-  if (i === 0) setForm('mi', { func: 'sin', nodos: '0, 1.5708, 3.1416', xt: 0.7854, M: 1 });
-  else setForm('mi', { func: 'sin', nodos: linspace(0, 2 * Math.PI, 7).map(v => v.toFixed(4)).join(', '), xt: 0.7854, M: 1 });
+  if (i === 0) setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 3, k: 1, M: 1 });
+  else setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 7, k: 3, M: 1 });
   schedule();
 }
 
@@ -732,7 +874,7 @@ function render4(r, ri) {
     kpi('κ₂(AᵀA)', sci(r.kap), r.kap < 1e3 ? pill('ok', 'Bien condicionado') : r.kap < 1e6 ? pill('warn', 'Condicionamiento moderado') : pill('bad', 'Mal condicionado')) +
     kpi('Autovalores λ_min / λ_max', `${sci(r.lmin)} / ${sci(r.lmax)}`, 'Matriz simétrica definida positiva') +
     kpi('Error relativo de x̂', sci(r.eStat), '‖x̂ − x*‖₂ / ‖x*‖₂') +
-    kpi('Interpolación · error', ri ? sci(ri.eL) : '—', ri ? `Lagrange en x̂ = ${fmt(ri.xt, 4)}` : 'Revisar nodos');
+    kpi('Interpolación · error máx', ri ? sci(ri.eL) : '—', ri ? `${ri.k} punto${ri.k === 1 ? '' : 's'} oculto${ri.k === 1 ? '' : 's'}` : 'Revisar nodos');
 
   const dd8 = [
     ds('Datos ruidosos y(rᵢ)', xy(r.r, r.y), C.W, { line: false, pr: 3 }),
@@ -745,23 +887,30 @@ function render4(r, ri) {
     r.x0.map((v, j) => [String(j), fmt(v, 6), r.xref ? fmt(r.xref[j], 6) : '—', r.xref ? sci(Math.abs(r.xref[j] - v)) : '—']));
 
   if (ri) {
-    $('t5').innerHTML = tbl(['Método', 'Valor en x̂', '|f(x̂) − P(x̂)|', 'Cota M/n!·∏|x̂ − xᵢ|'], [
-      ['f(x̂) exacta', fmt(ri.ex, 8), '—', '—'],
-      ['Lagrange', fmt(ri.L, 8), sci(ri.eL), sci(ri.cota)],
-      ['Newton (diferencias divididas)', fmt(ri.Nw, 8), sci(ri.eN), sci(ri.cota)],
-      ['Spline cúbico natural', fmt(ri.Sv, 8), sci(ri.eS), 'No aplica directamente']
+    const peorL = ri.eval_lagrange ? ri.eval_lagrange.peor_punto : null;
+    const peorN = ri.eval_newton ? ri.eval_newton.peor_punto : null;
+    const peorS = ri.eval_spline ? ri.eval_spline.peor_punto : null;
+    const worstStr = p => p ? `${fmt(p.x, 3)} (${sci(p.error_abs)})` : '—';
+
+    $('t5').innerHTML = tbl(['Método', 'Error Máximo', 'Error RMS', 'Peor punto x̂ (|error|)', 'Cota teórica máx'], [
+      ['Lagrange', sci(ri.eL), sci(ri.eval_lagrange ? ri.eval_lagrange.error_rms : ri.eL), worstStr(peorL), sci(ri.cota)],
+      ['Newton (diferencias divididas)', sci(ri.eN), sci(ri.eval_newton ? ri.eval_newton.error_rms : ri.eN), worstStr(peorN), sci(ri.cota)],
+      ['Spline cúbico natural', sci(ri.eS), sci(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS), worstStr(peorS), 'No aplica directamente']
     ]);
+
+    const hiddenPlot = (ri.puntos_ocultos || []).map(x => ({ x, y: ri.f ? ri.f(x) : Math.sin(x) }));
+
     chart('c9', 'line', [
       ds('f(t) exacta', xy(ri.grid, ri.fT), C.O, { bw: 3 }),
       ds('Lagrange', xy(ri.grid, ri.fL), C.R, { dash: [5, 4] }),
       ds('Spline natural', xy(ri.grid, ri.fS), C.G, { dash: [2, 3] }),
-      ds('Nodos xᵢ', xy(ri.xs, ri.ys), C.W, { line: false, pr: 5, ps: 'rectRot' }),
-      ds('x̂', [{ x: ri.xt, y: ri.ex }], C.Y, { line: false, pr: 6 })
+      ds('Nodos usados xᵢ', xy(ri.xs, ri.ys), C.W, { line: false, pr: 5, ps: 'rectRot' }),
+      ds('Puntos ocultos x̂ₖ', hiddenPlot, C.Y, { line: false, pr: 6, ps: 'circle' })
     ], 'Variable t', 'Función f(t)');
   }
 
   $('s5').innerHTML = `<p>Ajuste polinómico de grado ${r.n - 1} con ${r.r.length} muestras. La matriz AᵀA tiene κ₂ = ${sci(r.kap)}: un error relativo de 10⁻⁶ en los datos puede amplificarse hasta del orden de κ₂·10⁻⁶ en los coeficientes.</p>
-    ${ri ? `<p>Interpolación con ${ri.n} nodos. Lagrange y Newton representan el mismo polinomio, con P(x̂) = ${fmt(ri.L, 6)} y error ${sci(ri.eL)}, ${ri.eL <= ri.cota ? 'dentro' : 'fuera'} de la cota ${sci(ri.cota)}. El spline cúbico natural (valor ${fmt(ri.Sv, 6)}) reduce las oscilaciones entre nodos.</p>` : ''}`;
+    ${ri ? `<p>Interpolación con ${ri.n} nodos usados y ${ri.k} punto${ri.k === 1 ? '' : 's'} oculto${ri.k === 1 ? '' : 's'} evaluado${ri.k === 1 ? '' : 's'}. Lagrange y Newton representan el mismo polinomio con error máximo ${sci(ri.eL)} y equivalencia numérica |P_L − P_N|_max = ${sci(ri.diffLN)}. El spline cúbico natural obtiene error máximo ${sci(ri.eS)} (RMS = ${sci(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS)}), amortiguando oscilaciones espurias.</p>` : ''}`;
 }
 
 function renderMethods() {
@@ -1189,4 +1338,5 @@ if (typeof window !== 'undefined') {
   window.mod3 = mod3;
   window.mod4 = mod4;
   window.modInterp = modInterp;
+  window.evalOnPoints = evalOnPoints;
 }

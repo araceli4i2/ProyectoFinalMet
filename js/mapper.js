@@ -511,120 +511,171 @@ const Mapper = (() => {
 
     // Interpolación (si existe)
     if (ri) {
+      const diffLN = (ri.diffLN !== undefined && ri.diffLN !== null)
+        ? ri.diffLN
+        : ((Array.isArray(ri.fL) && Array.isArray(ri.fN) && ri.fL.length === ri.fN.length)
+            ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
+            : 0.0);
+
+      const kOcultos = ri.k || (Array.isArray(ri.puntos_ocultos) ? ri.puntos_ocultos.length : 1);
+      const nUsados = ri.n || (Array.isArray(ri.xs) ? ri.xs.length : 3);
+      const gradoP = nUsados - 1;
+
       // 1. Spline Cúbico Natural
-        executions.push({
-          caso_id: 4,
-          familia: 'INTERPOLACION',
-          metodo: 'Spline Cúbico Natural',
-          tolerancia: null,
-          paso: null,
-          max_iter: ri.n || 3,
-          convergio: true,
-          estado: 'COMPLETADO',
-          tiempo_ms: null,
-          iteraciones: [],
-          resumen: {
-            referencia: 'Función exacta f(x̂)',
-            valor_json: JSON.stringify({ P_xt: sanitizeNumber(ri.Sv), exacto: sanitizeNumber(ri.ex) }),
-            metrica_error_json: JSON.stringify({ error_abs: sanitizeNumber(ri.eS), cota_lagrange: sanitizeNumber(ri.cota) }),
-            conclusion_numerica: 'Spline cúbico C^2 minimiza oscilaciones espurias.',
-            conclusion_problema: 'Interpolación suave entre nodos de telemetría.'
-          },
-          series: [
-            { nombre: 'M4_interp_spline', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fS ? ri.fS[i] : null }))) },
-            { nombre: 'M4_puntos_ocultos', datos_json: JSON.stringify((ri.xs || []).map((x, i) => ({ x, y: ri.ys ? ri.ys[i] : null }))) }
-          ]
-        });
+      const sPts = (ri.eval_spline && Array.isArray(ri.eval_spline.puntos)) ? ri.eval_spline.puntos : [];
+      const sErrMax = sanitizeNumber(ri.eval_spline ? ri.eval_spline.error_max : ri.eS);
+      const sErrRms = sanitizeNumber(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS);
+      const sPeor = (ri.eval_spline && ri.eval_spline.peor_punto) ? ri.eval_spline.peor_punto : null;
 
-        // 2. Polinomio de Lagrange
-        const diffLN = (ri.diffLN !== undefined && ri.diffLN !== null)
-          ? ri.diffLN
-          : ((Array.isArray(ri.fL) && Array.isArray(ri.fN) && ri.fL.length === ri.fN.length)
-              ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
-              : 0.0);
+      executions.push({
+        caso_id: 4,
+        familia: 'INTERPOLACION',
+        metodo: 'Spline Cúbico Natural',
+        tolerancia: null,
+        paso: null,
+        max_iter: nUsados,
+        convergio: true,
+        estado: 'COMPLETADO',
+        tiempo_ms: null,
+        iteraciones: [],
+        resumen: {
+          referencia: 'Función exacta f(x̂)',
+          valor_json: JSON.stringify({
+            puntos_ocultos_evaluados: sPts,
+            error_maximo: sErrMax,
+            error_rms: sErrRms,
+            peor_punto: sPeor,
+            P_xt: sanitizeNumber(ri.Sv),
+            exacto: sanitizeNumber(ri.ex)
+          }),
+          metrica_error_json: JSON.stringify({
+            error_maximo: sErrMax,
+            error_rms: sErrRms,
+            peor_punto: sPeor,
+            error_abs: sanitizeNumber(ri.eS),
+            cota_lagrange: sanitizeNumber(ri.cota)
+          }),
+          conclusion_numerica: `Spline cúbico natural C² evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${sErrMax != null ? Number(sErrMax).toExponential(3) : '—'}, RMS = ${sErrRms != null ? Number(sErrRms).toExponential(3) : '—'}).`,
+          conclusion_problema: 'Interpolación suave entre nodos de telemetría sin oscilaciones espurias.'
+        },
+        series: [
+          { nombre: 'M4_interp_spline', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fS ? ri.fS[i] : null }))) },
+          { nombre: 'M4_curva_exacta', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fT ? ri.fT[i] : null }))) },
+          { nombre: 'M4_nodos_usados', datos_json: JSON.stringify((ri.xs || []).map((x, i) => ({ x, y: ri.ys ? ri.ys[i] : null }))) },
+          { nombre: 'M4_puntos_ocultos', datos_json: JSON.stringify(sPts.map(p => ({ x: p.x, y: sanitizeNumber(p.exacto) }))) },
+          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(sPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) }
+        ]
+      });
 
-        executions.push({
-          caso_id: 4,
-          familia: 'INTERPOLACION',
-          metodo: 'Polinomio de Lagrange',
-          tolerancia: null,
-          paso: null,
-          max_iter: ri.n ? ri.n - 1 : 2,
-          convergio: true,
-          estado: 'COMPLETADO',
-          tiempo_ms: null,
-          iteraciones: [],
-          resumen: {
-            referencia: 'Función exacta f(x̂)',
-            valor_json: JSON.stringify({
-              P_xt: sanitizeNumber(ri.L),
-              exacto: sanitizeNumber(ri.ex),
-              grado: (ri.n || 1) - 1,
-              dif_max_lagrange_newton: sanitizeNumber(diffLN)
+      // 2. Polinomio de Lagrange
+      const lPts = (ri.eval_lagrange && Array.isArray(ri.eval_lagrange.puntos)) ? ri.eval_lagrange.puntos : [];
+      const lErrMax = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_max : ri.eL);
+      const lErrRms = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_rms : ri.eL);
+      const lPeor = (ri.eval_lagrange && ri.eval_lagrange.peor_punto) ? ri.eval_lagrange.peor_punto : null;
+
+      executions.push({
+        caso_id: 4,
+        familia: 'INTERPOLACION',
+        metodo: 'Polinomio de Lagrange',
+        tolerancia: null,
+        paso: null,
+        max_iter: gradoP,
+        convergio: true,
+        estado: 'COMPLETADO',
+        tiempo_ms: null,
+        iteraciones: [],
+        resumen: {
+          referencia: 'Función exacta f(x̂)',
+          valor_json: JSON.stringify({
+            puntos_ocultos_evaluados: lPts,
+            error_maximo: lErrMax,
+            error_rms: lErrRms,
+            peor_punto: lPeor,
+            P_xt: sanitizeNumber(ri.L),
+            exacto: sanitizeNumber(ri.ex),
+            grado: gradoP,
+            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+          }),
+          metrica_error_json: JSON.stringify({
+            error_maximo: lErrMax,
+            error_rms: lErrRms,
+            peor_punto: lPeor,
+            error_abs: sanitizeNumber(ri.eL),
+            cota_teorica: sanitizeNumber(ri.cota),
+            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+          }),
+          conclusion_numerica: `Forma canónica de Lagrange (grado ${gradoP}) evaluada en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${lErrMax != null ? Number(lErrMax).toExponential(3) : '—'}). Equivalencia con Newton: |P_L - P_N|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`,
+          conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
+        },
+        series: [
+          { nombre: 'M4_interp_lagrange', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fL ? ri.fL[i] : null }))) },
+          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(lPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) }
+        ]
+      });
+
+      // 3. Newton Diferencias Divididas
+      const nPts = (ri.eval_newton && Array.isArray(ri.eval_newton.puntos)) ? ri.eval_newton.puntos : [];
+      const nErrMax = sanitizeNumber(ri.eval_newton ? ri.eval_newton.error_max : ri.eN);
+      const nErrRms = sanitizeNumber(ri.eval_newton ? ri.eval_newton.error_rms : ri.eN);
+      const nPeor = (ri.eval_newton && ri.eval_newton.peor_punto) ? ri.eval_newton.peor_punto : null;
+
+      const newtonIters = [];
+      if (Array.isArray(ri.tableDD)) {
+        ri.tableDD.forEach((row, k) => {
+          newtonIters.push({
+            numero: k,
+            aproximacion_json: JSON.stringify({
+              orden: k,
+              coef: sanitizeNumber(ri.cN ? ri.cN[k] : null),
+              diferencias: row.map(sanitizeNumber)
             }),
-            metrica_error_json: JSON.stringify({
-              error_abs: sanitizeNumber(ri.eL),
-              cota_teorica: sanitizeNumber(ri.cota),
-              dif_max_lagrange_newton: sanitizeNumber(diffLN)
-            }),
-            conclusion_numerica: `Forma canónica de Lagrange evaluada en punto de prueba (|P_L - P_N|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}).`,
-            conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
-          },
-          series: [
-            { nombre: 'M4_interp_lagrange', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fL ? ri.fL[i] : null }))) }
-          ]
-        });
-
-        // 3. Newton Diferencias Divididas
-        const newtonIters = [];
-        if (Array.isArray(ri.tableDD)) {
-          ri.tableDD.forEach((row, k) => {
-            newtonIters.push({
-              numero: k,
-              aproximacion_json: JSON.stringify({
-                orden: k,
-                coef: sanitizeNumber(ri.cN ? ri.cN[k] : null),
-                diferencias: row.map(sanitizeNumber)
-              }),
-              residual: null,
-              error_abs: null,
-              error_rel: null
-            });
+            residual: null,
+            error_abs: null,
+            error_rel: null
           });
-        }
-        executions.push({
-          caso_id: 4,
-          familia: 'INTERPOLACION',
-          metodo: 'Newton Diferencias Divididas',
-          tolerancia: null,
-          paso: null,
-          max_iter: ri.n ? ri.n - 1 : 2,
-          convergio: true,
-          estado: 'COMPLETADO',
-          tiempo_ms: null,
-          iteraciones: newtonIters,
-          resumen: {
-            referencia: 'Función exacta f(x̂)',
-            valor_json: JSON.stringify({
-              P_xt: sanitizeNumber(ri.Nw),
-              exacto: sanitizeNumber(ri.ex),
-              coeficientes: (ri.cN || []).map(sanitizeNumber),
-              grado: (ri.n || 1) - 1,
-              dif_max_lagrange_newton: sanitizeNumber(diffLN)
-            }),
-            metrica_error_json: JSON.stringify({
-              error_abs: sanitizeNumber(ri.eN),
-              cota_teorica: sanitizeNumber(ri.cota),
-              dif_max_lagrange_newton: sanitizeNumber(diffLN)
-            }),
-            conclusion_numerica: `Interpolación mediante esquema triangular de diferencias divididas (|P_N - P_L|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}).`,
-            conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'
-          },
-          series: [
-            { nombre: 'M4_interp_newton_dd', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fN ? ri.fN[i] : (ri.fL ? ri.fL[i] : null) }))) }
-          ]
         });
       }
+      executions.push({
+        caso_id: 4,
+        familia: 'INTERPOLACION',
+        metodo: 'Newton Diferencias Divididas',
+        tolerancia: null,
+        paso: null,
+        max_iter: gradoP,
+        convergio: true,
+        estado: 'COMPLETADO',
+        tiempo_ms: null,
+        iteraciones: newtonIters,
+        resumen: {
+          referencia: 'Función exacta f(x̂)',
+          valor_json: JSON.stringify({
+            puntos_ocultos_evaluados: nPts,
+            error_maximo: nErrMax,
+            error_rms: nErrRms,
+            peor_punto: nPeor,
+            P_xt: sanitizeNumber(ri.Nw),
+            exacto: sanitizeNumber(ri.ex),
+            coeficientes: (ri.cN || []).map(sanitizeNumber),
+            grado: gradoP,
+            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+          }),
+          metrica_error_json: JSON.stringify({
+            error_maximo: nErrMax,
+            error_rms: nErrRms,
+            peor_punto: nPeor,
+            error_abs: sanitizeNumber(ri.eN),
+            cota_teorica: sanitizeNumber(ri.cota),
+            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+          }),
+          conclusion_numerica: `Interpolación mediante esquema triangular de diferencias divididas (grado ${gradoP}, orden ${newtonIters.length}) evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${nErrMax != null ? Number(nErrMax).toExponential(3) : '—'}). Equivalencia con Lagrange: |P_N - P_L|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`,
+          conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'
+        },
+        series: [
+          { nombre: 'M4_interp_newton_dd', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fN ? ri.fN[i] : (ri.fL ? ri.fL[i] : null) }))) },
+          { nombre: 'M4_error_por_punto', datos_json: JSON.stringify(nPts.map(p => ({ x: p.x, y: sanitizeNumber(p.error_abs) }))) }
+        ]
+      });
+    }
 
     // --- EXTENSIBILIDAD: Ejecuciones adicionales inyectadas por módulos de compañeros ---
     if (results && Array.isArray(results.extraExecutions)) {
