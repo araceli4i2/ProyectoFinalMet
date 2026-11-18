@@ -344,6 +344,7 @@
         <div class="eq sm">Lagrange: P(x) = Σ y_i·ℓ_i(x)</div>
         <div class="eq sm">Spline natural: h_{i−1}M_{i−1} + 2(h_{i−1}+h_i)M_i + h_iM_{i+1} = 6[ (y_{i+1}−y_i)/h_i − (y_i−y_{i−1})/h_{i−1} ]</div>
         <div class="ctrl" id="fmi" data-live></div>
+        <p class="note" style="margin-top:8px"><b>Ayuda parámetro k:</b> Ingresa una <i>cantidad</i> de nodos a ocultar (ej. <code>3</code>, distribuidos automáticamente en el interior) o una <i>lista de índices</i> separados por coma (ej. <code>1, 4, 7</code>). Los extremos <code>a</code> y <code>b</code> nunca se retiran.</p>
         <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn ghost" onclick="presetInterp(0)">Ejemplo de 3 nodos</button>
           <button class="btn ghost" onclick="presetInterp(1)">Malla de 12 nodos (Normal)</button>

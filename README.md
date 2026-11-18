@@ -103,7 +103,15 @@ Tratamiento y regularización de mediciones procedentes de sensores de tensión 
 - **Interpolación Avanzada**:
   * Polinomio de **Lagrange**.
   * Polinomio de **Newton con Diferencias Divididas** y cálculo de cota teórica del error.
-  * **Splines Cúbicos Naturales** ($C^2$) para evitar el fenómeno de Runge.
+  * **Splines Cúbicos Naturales** ($C^2$) para evitar oscilaciones espurias.
+  * **Esquema de Puntos Ocultos (Parámetro $k$)**:
+    * **Cantidad entera ($k$)**: Especifica el número de nodos interiores a retirar automáticamente. El motor distribuye los $k$ puntos uniformemente espaciados en el interior ($1 \le i \le n-2$), garantizando que los extremos $a$ y $b$ **nunca** se retiran.
+    * **Lista explícita de índices**: Permite ingresar índices específicos separados por coma (ej. `1, 4, 7` o `[1, 4, 7]`).
+    * **Procedimiento**: Los tres métodos se construyen exclusivamente con los $n - k$ nodos restantes y evalúan su capacidad predictiva contra la función analítica verdadera en los puntos ocultos.
+  * **Hallazgo de Estabilidad Numérica y Condicionamiento en Interpolación**:
+    * En **Normal** ($n=12, \sigma=0$): Lagrange, Newton y Spline reconstruyen la señal con errores máximos suaves del orden de $1.46 \times 10^{-3}$ y $5.81 \times 10^{-3}$.
+    * En **Estrés** ($n=40, \sigma=0.05$, semilla 2026): El alto grado con nodos equiespaciados posee una constante de Lebesgue astronómica ($\Lambda_{40}^{\text{equi}} \approx 2.41 \times 10^9$ vs $\Lambda_{40}^{\text{cheb}} \approx 3.29$). La perturbación gaussiana $\sigma=0.05$ es amplificada violentamente por los polinomios globales (Lagrange y Newton), produciendo errores de hasta $7.72 \times 10^6$ en los puntos ocultos y $2.94 \times 10^7$ en la malla densa cerca de los extremos (**mal condicionamiento severo de la base polinomial global**). En contraste, el **Spline Cúbico Natural** amortigua las fluctuaciones estocásticas manteniendo el error acotado en $0.095$ en puntos ocultos y $0.143$ en la malla densa ($\approx 2\sigma$), ratificando su estabilidad superior ante alta densidad de datos ruidosos.
+    * En **Mal Condicionado** ($n=21, \sigma=0$): La discretización equiespaciada presenta $\Lambda_{21}^{\text{equi}} \approx 10\,975 \gg \Lambda_{21}^{\text{cheb}} \approx 2.87$ y amplifica perturbaciones relativas $\varepsilon=10^{-6}$ por un factor de $11\,471.7\times$. Sin embargo, en condiciones nominales sin ruido el error para $\sin(t)$ es de apenas $1.43 \times 10^{-11}$ (el fenómeno clásico de Runge no ocurre debido a la analiticidad global de la función seno).
 
 ---
 
@@ -125,6 +133,10 @@ La plataforma permite conmutar de manera instantánea entre tres escenarios dete
 | **Módulo 4: Grado $d$, Muestras $m$** | $d=3, m=12$ | $d=3, m=60$ ($\sigma=0.05$) | $d=5, m=30$ |
 | **Módulo 4: Condicionamiento $\kappa_2(A^T A)$** | $\kappa_2 = 51.27$ | $\kappa_2 = 63.05$ | **$\kappa_2 \approx 1.15 \times 10^7$ (Severo)** |
 | **Módulo 4: Solucionadores Lineales** | Jac: 279, GS: 116, CG: 4 | Jac: 317, GS: 137, CG: 4 | **Jac: Diverge (158), GS: Límite (50k), CG: 7** |
+| **Módulo 4: Interpolación $n$, ocultos $k$, ruido $\sigma$** | $n=12, k=3, \sigma=0$ | $n=40, k=3, \sigma=0.05$ | $n=21, k=3, \sigma=0$ |
+| **Módulo 4: Constante Lebesgue $\Lambda_n$ (Equi vs Cheb)** | $\Lambda_{12} = 57.3$ vs $2.5$ | **$\Lambda_{40} \approx 2.41 \times 10^9$ vs $3.29$** | **$\Lambda_{21} \approx 10\,975$ vs $2.87$** |
+| **Módulo 4: Error máx ocultos (Lagrange / Spline)** | $1.46 \times 10^{-3}$ / $5.81 \times 10^{-3}$ | **$7.72 \times 10^6$ / $9.52 \times 10^{-2}$** | $1.43 \times 10^{-11}$ / $3.05 \times 10^{-4}$ |
+| **Módulo 4: Error máx malla densa (Lagrange / Spline)** | $1.52 \times 10^{-3}$ / $7.44 \times 10^{-3}$ | **$2.94 \times 10^7$ / $0.143$** | $3.69 \times 10^{-11}$ / $3.89 \times 10^{-4}$ |
 
 ---
 
