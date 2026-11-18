@@ -527,6 +527,22 @@ const Mapper = (() => {
       const sErrRms = sanitizeNumber(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS);
       const sPeor = (ri.eval_spline && ri.eval_spline.peor_punto) ? ri.eval_spline.peor_punto : null;
 
+      const subexp = ri.subexp_lebesgue ? {
+        lebesgue_equi: sanitizeNumber(ri.subexp_lebesgue.lebesgue_equi),
+        lebesgue_cheb: sanitizeNumber(ri.subexp_lebesgue.lebesgue_cheb),
+        amplificacion_medida: sanitizeNumber(ri.subexp_lebesgue.amplificacion_medida),
+        cota_lebesgue_epsilon: sanitizeNumber(ri.subexp_lebesgue.cota_lebesgue_epsilon),
+        runge_observado: ri.subexp_lebesgue.runge_observado,
+        error_nominal_max: sanitizeNumber(ri.subexp_lebesgue.error_nominal_max)
+      } : null;
+
+      let concNumSpline = `Spline cúbico natural C² evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${sErrMax != null ? Number(sErrMax).toExponential(3) : '—'}, RMS = ${sErrRms != null ? Number(sErrRms).toExponential(3) : '—'}).`;
+      if (ri.subexp_lebesgue) {
+        concNumSpline += ` Condicionamiento: Spline C² local no sufre del crecimiento exponencial de Lebesgue (Λ_equi=${sanitizeNumber(ri.subexp_lebesgue.lebesgue_equi)}).`;
+      } else if (ri.sigma > 0) {
+        concNumSpline += ` Régimen de alta demanda y ruido σ=${ri.sigma}: filtra fluctuaciones locales mejor que polinomios globales.`;
+      }
+
       executions.push({
         caso_id: 4,
         familia: 'INTERPOLACION',
@@ -546,16 +562,23 @@ const Mapper = (() => {
             error_rms: sErrRms,
             peor_punto: sPeor,
             P_xt: sanitizeNumber(ri.Sv),
-            exacto: sanitizeNumber(ri.ex)
+            exacto: sanitizeNumber(ri.ex),
+            distribucion: ri.distrib || 'equi',
+            sigma_ruido: sanitizeNumber(ri.sigma),
+            semilla: ri.seed,
+            subexp_lebesgue: subexp
           }),
           metrica_error_json: JSON.stringify({
             error_maximo: sErrMax,
             error_rms: sErrRms,
             peor_punto: sPeor,
             error_abs: sanitizeNumber(ri.eS),
-            cota_lagrange: sanitizeNumber(ri.cota)
+            cota_lagrange: sanitizeNumber(ri.cota),
+            distribucion: ri.distrib || 'equi',
+            sigma_ruido: sanitizeNumber(ri.sigma),
+            subexp_lebesgue: subexp
           }),
-          conclusion_numerica: `Spline cúbico natural C² evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${sErrMax != null ? Number(sErrMax).toExponential(3) : '—'}, RMS = ${sErrRms != null ? Number(sErrRms).toExponential(3) : '—'}).`,
+          conclusion_numerica: concNumSpline,
           conclusion_problema: 'Interpolación suave entre nodos de telemetría sin oscilaciones espurias.'
         },
         series: [
@@ -572,6 +595,14 @@ const Mapper = (() => {
       const lErrMax = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_max : ri.eL);
       const lErrRms = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_rms : ri.eL);
       const lPeor = (ri.eval_lagrange && ri.eval_lagrange.peor_punto) ? ri.eval_lagrange.peor_punto : null;
+
+      let concNumLagrange = `Forma canónica de Lagrange (grado ${gradoP}) evaluada en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${lErrMax != null ? Number(lErrMax).toExponential(3) : '—'}). Equivalencia con Newton: |P_L - P_N|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`;
+      if (ri.subexp_lebesgue) {
+        const sl = ri.subexp_lebesgue;
+        concNumLagrange += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
+      } else if (ri.sigma > 0) {
+        concNumLagrange += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial gaussiano σ=${ri.sigma} (semilla ${ri.seed}): error evaluado contra función exacta para medir propagación.`;
+      }
 
       executions.push({
         caso_id: 4,
@@ -594,7 +625,11 @@ const Mapper = (() => {
             P_xt: sanitizeNumber(ri.L),
             exacto: sanitizeNumber(ri.ex),
             grado: gradoP,
-            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+            dif_max_lagrange_newton: sanitizeNumber(diffLN),
+            distribucion: ri.distrib || 'equi',
+            sigma_ruido: sanitizeNumber(ri.sigma),
+            semilla: ri.seed,
+            subexp_lebesgue: subexp
           }),
           metrica_error_json: JSON.stringify({
             error_maximo: lErrMax,
@@ -602,9 +637,12 @@ const Mapper = (() => {
             peor_punto: lPeor,
             error_abs: sanitizeNumber(ri.eL),
             cota_teorica: sanitizeNumber(ri.cota),
-            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+            dif_max_lagrange_newton: sanitizeNumber(diffLN),
+            distribucion: ri.distrib || 'equi',
+            sigma_ruido: sanitizeNumber(ri.sigma),
+            subexp_lebesgue: subexp
           }),
-          conclusion_numerica: `Forma canónica de Lagrange (grado ${gradoP}) evaluada en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${lErrMax != null ? Number(lErrMax).toExponential(3) : '—'}). Equivalencia con Newton: |P_L - P_N|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`,
+          conclusion_numerica: concNumLagrange,
           conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
         },
         series: [
@@ -618,6 +656,14 @@ const Mapper = (() => {
       const nErrMax = sanitizeNumber(ri.eval_newton ? ri.eval_newton.error_max : ri.eN);
       const nErrRms = sanitizeNumber(ri.eval_newton ? ri.eval_newton.error_rms : ri.eN);
       const nPeor = (ri.eval_newton && ri.eval_newton.peor_punto) ? ri.eval_newton.peor_punto : null;
+
+      let concNumNewton = `Interpolación mediante esquema triangular de diferencias divididas (grado ${gradoP}, orden ${(ri.tableDD || []).length}) evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${nErrMax != null ? Number(nErrMax).toExponential(3) : '—'}). Equivalencia con Lagrange: |P_N - P_L|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`;
+      if (ri.subexp_lebesgue) {
+        const sl = ri.subexp_lebesgue;
+        concNumNewton += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
+      } else if (ri.sigma > 0) {
+        concNumNewton += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial gaussiano σ=${ri.sigma} (semilla ${ri.seed}): error evaluado contra función exacta para medir propagación.`;
+      }
 
       const newtonIters = [];
       if (Array.isArray(ri.tableDD)) {
@@ -657,7 +703,11 @@ const Mapper = (() => {
             exacto: sanitizeNumber(ri.ex),
             coeficientes: (ri.cN || []).map(sanitizeNumber),
             grado: gradoP,
-            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+            dif_max_lagrange_newton: sanitizeNumber(diffLN),
+            distribucion: ri.distrib || 'equi',
+            sigma_ruido: sanitizeNumber(ri.sigma),
+            semilla: ri.seed,
+            subexp_lebesgue: subexp
           }),
           metrica_error_json: JSON.stringify({
             error_maximo: nErrMax,
@@ -665,9 +715,12 @@ const Mapper = (() => {
             peor_punto: nPeor,
             error_abs: sanitizeNumber(ri.eN),
             cota_teorica: sanitizeNumber(ri.cota),
-            dif_max_lagrange_newton: sanitizeNumber(diffLN)
+            dif_max_lagrange_newton: sanitizeNumber(diffLN),
+            distribucion: ri.distrib || 'equi',
+            sigma_ruido: sanitizeNumber(ri.sigma),
+            subexp_lebesgue: subexp
           }),
-          conclusion_numerica: `Interpolación mediante esquema triangular de diferencias divididas (grado ${gradoP}, orden ${newtonIters.length}) evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${nErrMax != null ? Number(nErrMax).toExponential(3) : '—'}). Equivalencia con Lagrange: |P_N - P_L|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`,
+          conclusion_numerica: concNumNewton,
           conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'
         },
         series: [

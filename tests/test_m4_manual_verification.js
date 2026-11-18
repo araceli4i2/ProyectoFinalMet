@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const initSqlJs = require('../vendor/sqljs/sql-wasm.js');
+const DB = require('../js/db.js');
 const Mapper = require('../js/mapper.js');
 
 function assert(cond, msg) {
@@ -22,17 +24,20 @@ const appCode = fs.readFileSync(path.join(__dirname, '../js/app.js'), 'utf8');
 const doc = {
   getElementById: () => ({ value: 'N', closest: () => null }),
   querySelectorAll: () => [],
-  addEventListener: () => {}
+  addEventListener: () => { }
 };
-const win = { addEventListener: () => {}, document: doc };
-const sandbox = { window: win, document: doc, console, setTimeout: () => {}, clearTimeout: () => {}, Math };
+const win = { addEventListener: () => { }, document: doc };
+const sandbox = { window: win, document: doc, console, setTimeout: () => { }, clearTimeout: () => { }, Math };
 vm.createContext(sandbox);
-vm.runInContext(appCode + '; this.newtonCoef = newtonCoef; this.newtonEval = newtonEval; this.lagrangeEval = lagrangeEval; this.modInterp = modInterp;', sandbox);
+vm.runInContext(appCode + '; this.PRE = PRE; this.SYS = SYS; this.solverRows = solverRows; this.mod1 = mod1; this.mod2 = mod2; this.mod3 = mod3; this.mod4 = mod4; this.newtonCoef = newtonCoef; this.newtonEval = newtonEval; this.lagrangeEval = lagrangeEval; this.modInterp = modInterp; this.lebesgueConstant = lebesgueConstant;', sandbox);
 
 const newtonCoef = sandbox.newtonCoef;
 const newtonEval = sandbox.newtonEval;
 const lagrangeEval = sandbox.lagrangeEval;
 const modInterp = sandbox.modInterp;
+const lebesgueConstant = sandbox.lebesgueConstant;
+const PRE = sandbox.PRE;
+const mod4 = sandbox.mod4;
 
 const tol = 1e-12;
 const pi = Math.PI;
@@ -65,15 +70,15 @@ const f_x0_x1_expected = 2 / pi;
 const f_x1_x2_expected = -2 / pi;
 assertClose(table[1][0], f_x0_x1_expected, tol, 'f[x0, x1]');
 assertClose(table[1][1], f_x1_x2_expected, tol, 'f[x1, x2]');
-console.log(`   ✔ f[x0, x1] = ${table[1][0].toFixed(8)} (teórico 2/pi = ${(2/pi).toFixed(8)})`);
-console.log(`   ✔ f[x1, x2] = ${table[1][1].toFixed(8)} (teórico -2/pi = ${(-2/pi).toFixed(8)})`);
+console.log(`   ✔ f[x0, x1] = ${table[1][0].toFixed(8)} (teórico 2/pi = ${(2 / pi).toFixed(8)})`);
+console.log(`   ✔ f[x1, x2] = ${table[1][1].toFixed(8)} (teórico -2/pi = ${(-2 / pi).toFixed(8)})`);
 
 // Orden 2:
 // f[x0, x1, x2] = (-2/pi - 2/pi) / (pi - 0) = -4/pi^2
 assert(table[2].length === 1, 'Orden 2 debe contener 1 diferencia dividida');
 const f_x0_x1_x2_expected = -4 / (pi * pi);
 assertClose(table[2][0], f_x0_x1_x2_expected, tol, 'f[x0, x1, x2]');
-console.log(`   ✔ f[x0, x1, x2] = ${table[2][0].toFixed(8)} (teórico -4/pi^2 = ${(-4/(pi*pi)).toFixed(8)})`);
+console.log(`   ✔ f[x0, x1, x2] = ${table[2][0].toFixed(8)} (teórico -4/pi^2 = ${(-4 / (pi * pi)).toFixed(8)})`);
 
 // Coeficientes de Newton: c0 = 0, c1 = 2/pi, c2 = -4/pi^2
 assertClose(coefs[0], 0, tol, 'Coeficiente Newton c0');
@@ -289,4 +294,124 @@ assertClose(riLeg.eL, 0.042893, 1e-5, 'Error Lagrange legacy');
 assertClose(riLeg.cota, 0.2422, 1e-3, 'Cota teórica legacy');
 console.log(`   ✔ Compatibilidad legacy confirmada: L(0.7854) = ${riLeg.L.toFixed(6)}, eL = ${riLeg.eL.toFixed(6)}, cota = ${riLeg.cota.toFixed(4)}.`);
 
-console.log('\n✅ PRUEBA DE VERIFICACIÓN MANUAL DE M4 COMPLETADA AL 100% SATISFACTORIAMENTE.');
+async function runFase3Tests() {
+  // 12. Verificación analítica de la constante de Lebesgue para n=3 (Lambda_3 = 1.25)
+  console.log('\n11. Verificando constante de Lebesgue analítica para n=3...');
+  // Analítico: para 3 nodos equiespaciados en [-1, 1], l0=(x^2-x)/2, l1=1-x^2, l2=(x^2+x)/2
+  // En [0, 1], Lambda(x) = 1 + x - x^2. Máximo en x=1/2: Lambda(1/2) = 1 + 1/2 - 1/4 = 5/4 = 1.25.
+  // Invariante por transformación afín a cualquier [a, b].
+  const leb3Standard = lebesgueConstant([-1, 0, 1], 600);
+  const leb3Pi = lebesgueConstant([0, pi, 2 * pi], 600);
+  assertClose(leb3Standard, 1.25, 0.005, 'Constante de Lebesgue en [-1, 1]');
+  assertClose(leb3Pi, 1.25, 0.005, 'Constante de Lebesgue en [0, 2pi]');
+  console.log(`   ✔ Lambda_3 en [-1, 0, 1]  = ${leb3Standard.toFixed(4)} (esperado analítico: 1.2500)`);
+  console.log(`   ✔ Lambda_3 en [0, pi, 2pi] = ${leb3Pi.toFixed(4)} (esperado analítico: 1.2500)`);
+  console.log('   ✔ Invariancia afín y coincidencia con el cálculo manual de lápiz y papel confirmadas.');
+
+  // 13. Subexperimento de Mal Condicionado (n=21 nodos equiespaciados vs Chebyshev)
+  console.log('\n12. Verificando subexperimento de Mal Condicionado (n=21 nodos)...');
+  const riMC = modInterp(PRE.MC.mi);
+  assert(riMC !== null, 'modInterp debe procesar escenario MC');
+  assert(riMC.subexp_lebesgue !== null, 'MC debe ejecutar y reportar subexp_lebesgue');
+
+  const sl = riMC.subexp_lebesgue;
+  console.log(`   • Nodos totales: ${sl.n_total}, usados: ${sl.n}`);
+  console.log(`   • Constante de Lebesgue equiespaciada Λ_equi = ${sl.lebesgue_equi.toFixed(2)}`);
+  console.log(`   • Constante de Lebesgue Chebyshev     Λ_cheb = ${sl.lebesgue_cheb.toFixed(2)}`);
+  console.log(`   • Perturbación ε = ${sl.epsilon_perturbacion} -> Error inducido máx = ${sl.error_perturbado_max.toExponential(4)}`);
+  console.log(`   • Factor de amplificación medido = ${sl.amplificacion_medida.toFixed(1)}x (cota Λ·ε = ${sl.cota_lebesgue_epsilon.toExponential(4)})`);
+  console.log(`   • Error nominal para sen(t) sin ruido = ${sl.error_nominal_max.toExponential(4)}`);
+  console.log(`   • Fenómeno de Runge observado = ${sl.runge_observado}`);
+
+  assert(sl.lebesgue_equi > 10000, 'Lambda_equi para n=21 debe ser > 10000 (aprox. 10986)');
+  assert(sl.lebesgue_cheb < 3.5, 'Lambda_cheb para n=21 debe ser < 3.5 (aprox. 2.87)');
+  assert(sl.amplificacion_medida > 8000, 'Amplificación medida debe ser > 8000x');
+  assert(sl.amplificacion_medida <= sl.lebesgue_equi * 1.05, 'Amplificación debe estar acotada por Lambda_equi');
+  assert(sl.error_nominal_max < 1e-10, 'Para sen(t) sin ruido, el error nominal debe ser despreciable (< 1e-10)');
+  assert(sl.runge_observado === false, 'El fenómeno de Runge NO se observa para sen(t) por ser entera y analítica');
+
+  assert(sl.diagnostico.mal_condicionamiento.includes('Propiedad del problema'), 'Diagnóstico debe indicar mal condicionamiento como propiedad del problema');
+  assert(sl.diagnostico.falta_convergencia.includes('Propiedad del método'), 'Diagnóstico debe indicar convergencia como propiedad del método');
+  assert(sl.diagnostico.riesgo_fisico.includes('No aplica'), 'Diagnóstico debe indicar que el riesgo físico no aplica a la tarea');
+  console.log('   ✔ Subexperimento numérico riguroso de mal condicionamiento verificado.');
+
+  // 14. Verificación de escenario de Estrés (alta demanda de datos n=40 y ruido gaussiano)
+  console.log('\n13. Verificando escenario de Estrés (n=40, ruido sigma=0.05)...');
+  const riE = modInterp(PRE.E.mi);
+  assert(riE !== null, 'modInterp debe procesar escenario Estrés');
+  assert(riE.allNodes.length === 40, 'Estrés debe generar 40 nodos');
+  assert(riE.puntos_ocultos.length === 3, 'Estrés debe retirar 3 puntos ocultos');
+  assert(riE.sigma === 0.05, 'Estrés debe usar sigma=0.05');
+  assert(riE.seed === 2026, 'Estrés debe fijar semilla determinista 2026');
+  assert(riE.eval_lagrange.error_rms > 0.005, 'Ruido sensorial debe propagarse en el error de predicción');
+  console.log(`   ✔ Estrés: N=40, σ=0.05, semilla=2026 -> Error RMS = ${riE.eval_lagrange.error_rms.toFixed(5)} medido frente a la curva pura.`);
+
+  // 15. Verificación de relanzamiento y comparación matemática en SQLite de los 3 escenarios
+  console.log('\n14. Verificando relanzamiento de los 3 escenarios (Normal, Estrés, MC) en SQLite...');
+  const wasmBinary = fs.readFileSync(path.join(__dirname, '../vendor/sqljs/sql-wasm.wasm'));
+  const SQL = await initSqlJs({ wasmBinary });
+  const db = new SQL.Database();
+  db.run('PRAGMA foreign_keys = ON;');
+  db.run(fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8'));
+
+  const engine = {
+    mod1: sandbox.mod1,
+    mod2: sandbox.mod2,
+    mod3: sandbox.mod3,
+    mod4: sandbox.mod4,
+    modInterp: sandbox.modInterp,
+    SYS: sandbox.SYS,
+    solverRows: sandbox.solverRows,
+    PRE: sandbox.PRE
+  };
+
+  const scenCodes = ['N', 'E', 'MC'];
+  for (let i = 0; i < scenCodes.length; i++) {
+    const sc = scenCodes[i];
+    const scenTipo = sc === 'N' ? 'NORMAL' : sc === 'E' ? 'ESTRES' : 'MAL_CONDICIONADO';
+    const p4 = PRE[sc].m4;
+    const pmi = PRE[sc].mi;
+    const r4 = mod4(p4);
+    const ri = modInterp(pmi);
+    const s4Rows = r4.rows;
+
+    const last = { r4, ri, s4Rows };
+    const execs = Mapper.buildAllExecutions(last, { m4: p4, mi: pmi }, sc);
+    const m4Execs = execs.filter(e => e.caso_id === 4);
+
+    const saveRes = DB.saveSimulationTransaction({
+      escenario: {
+        caso_id: 4,
+        tipo: scenTipo,
+        parametros_json: { ...p4, mi: pmi },
+        fuente_datos: `Test Relanzamiento Escenario ${sc}`
+      },
+      simulacion: {
+        fecha: `2026-11-18 10:0${i}:00`,
+        usuario_equipo: 'Investigador UMSA / Test M4',
+        estado: 'COMPLETADO'
+      },
+      ejecuciones: m4Execs
+    }, db);
+
+    const simId = saveRes.simulacion_id;
+    console.log(`   -> Simulación #${simId} (${scenTipo}) guardada con ${saveRes.ejecuciones_guardadas} ejecuciones.`);
+
+    // Relanzar y comparar
+    const relaunchRes = await DB.relaunchSimulation(simId, 1e-9, db, engine);
+    const comp = relaunchRes.comparacion;
+
+    console.log(`      ↳ Relanzada #${relaunchRes.simulacion_id}: coincide=${comp.coincide}, dif_max=${comp.diferencia_max}`);
+    assert(comp.coincide === true, `El relanzamiento del escenario ${sc} DEBE coincidir con la BD`);
+    assert(comp.diferencia_max <= 1e-9, `La diferencia máxima en escenario ${sc} debe ser <= 1e-9 (obtenido ${comp.diferencia_max})`);
+  }
+  console.log('   ✔ Todos los 3 escenarios relanzados exitosamente con coincide = 1 y diferencia_max <= 1e-9.');
+  console.log('   ✔ Ruido gaussiano en Estrés es 100% reproducible y determinista.');
+
+  console.log('\n✅ PRUEBA DE VERIFICACIÓN MANUAL DE M4 Y ESCENARIOS COMPLETADA AL 100% SATISFACTORIAMENTE.');
+}
+
+runFase3Tests().catch(err => {
+  console.error('\n❌ ERROR EN PRUEBA FASE 3 M4:', err);
+  process.exit(1);
+});

@@ -190,30 +190,30 @@ const SYS = {
 };
 
 /* ---------- PRESETS DE ESCENARIO ---------- */
-const INTERP_DEF = { func: 'sin', a: 0, b: 3.141592653589793, n: 7, k: 3, M: 1 };
 const PRE = {
   N: {
     m1: { model: 'const', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.10, alpha: 0.015, beta: 0.001, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 200, F0: 400, Om: 1.2, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 12, grado: 3, a: -1, b: 1, sigma: 0, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-10 },
-    mi: INTERP_DEF
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1 }
   },
   E: {
     m1: { model: 'const', v0: 7, a0: 0.6, amax: 1.50, k: 0.8, c: 0, T: 4, sensor: 0.15, red: 0.55, plc: 0.20, act: 0.30, dseg: 15, h: 0.05 },
     m2: { D0: 0.12, alpha: 0.025, beta: 0.002, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 100, F0: 400, Om: 1.9, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 60, grado: 3, a: -1, b: 1, sigma: 0.05, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-12 },
-    mi: INTERP_DEF
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 40, k: 3, distrib: 'equi', sigma: 0.05, seed: 2026, M: 1 }
   },
   MC: {
     m1: { model: 'tang', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.24, alpha: 0.002, beta: 0.0001, Du: 0.2401, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 20, F0: 40, Om: 2.0, Alim: 0.5, Tsim: 150, ruido: 0.05, seed: 2026 },
     m4: { pts: 30, grado: 5, a: 0, b: 1, sigma: 0, seed: 2026, coefs: '1,1,1,1,1,1', tol: 1e-10 },
-    mi: INTERP_DEF
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 21, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1 }
   }
 };
+const INTERP_DEF = PRE.N.mi;
 PRE.M = PRE.MC;
 const SCEN_KEYS = ['N', 'E', 'MC'];
 const SCEN_NAME = { N: 'Normal', E: 'Estrés', MC: 'Mal condicionado', M: 'Mal condicionado' };
@@ -437,6 +437,26 @@ function mod4(p) {
   return { r, y, yc, A, b, x0, xref, kap, lmin: ev[0], lmax: ev[n - 1], rows, cgRow, grid, fit, fitTrue, eStat, n, tol: p.tol };
 }
 
+function lebesgueConstant(xs, numEval = 400) {
+  const n = xs.length;
+  if (n <= 1) return 1;
+  const a = xs[0], b = xs[n - 1];
+  const grid = linspace(a, b, numEval);
+  let maxLeb = 0;
+  for (const x of grid) {
+    let sumL = 0;
+    for (let i = 0; i < n; i++) {
+      let l_i = 1;
+      for (let j = 0; j < n; j++) {
+        if (j !== i) l_i *= (x - xs[j]) / (xs[i] - xs[j]);
+      }
+      sumL += Math.abs(l_i);
+    }
+    if (sumL > maxLeb) maxLeb = sumL;
+  }
+  return maxLeb;
+}
+
 function evalOnPoints(evalFn, X_ocultos, f) {
   const puntos = [];
   let sumSq = 0;
@@ -462,12 +482,15 @@ function evalOnPoints(evalFn, X_ocultos, f) {
 
 function modInterp(p) {
   p = p || {};
-  const f = p.func === 'sin' ? Math.sin : (t => Math.exp(-t));
+  const f = p.func === 'exp' ? (t => Math.exp(-t)) : Math.sin;
   let a = (p.a !== undefined && p.a !== null && p.a !== '') ? Number(p.a) : 0;
-  let b = (p.b !== undefined && p.b !== null && p.b !== '') ? Number(p.b) : Math.PI;
+  let b = (p.b !== undefined && p.b !== null && p.b !== '') ? Number(p.b) : (2 * Math.PI);
   if (!isFinite(a)) a = 0;
-  if (!isFinite(b)) b = Math.PI;
+  if (!isFinite(b)) b = 2 * Math.PI;
   const M = (p.M !== undefined && p.M !== null && p.M !== '') ? Number(p.M) : 1;
+  const sigma = (p.sigma !== undefined && p.sigma !== null && p.sigma !== '') ? Number(p.sigma) : 0;
+  const seed = (p.seed !== undefined && p.seed !== null && p.seed !== '') ? (Number(p.seed) | 0) : 2026;
+  const distrib = p.distrib === 'cheb' ? 'cheb' : 'equi';
 
   let allNodes = [];
   let customNodes = null;
@@ -500,8 +523,15 @@ function modInterp(p) {
       allNodes = customNodes;
     } else {
       let n = parseInt(p.n, 10);
-      if (isNaN(n) || n < 3) n = 7;
-      allNodes = linspace(a, b, n);
+      if (isNaN(n) || n < 3) n = 12;
+      if (distrib === 'cheb') {
+        allNodes = [];
+        for (let j = 0; j < n; j++) {
+          allNodes.push(0.5 * (a + b) - 0.5 * (b - a) * Math.cos(j * Math.PI / (n - 1)));
+        }
+      } else {
+        allNodes = linspace(a, b, n);
+      }
     }
     const N = allNodes.length;
     if (N < 2) return null;
@@ -542,13 +572,26 @@ function modInterp(p) {
   }
 
   if (xs.length < 2) return null;
-  const ys = xs.map(f), n = xs.length;
+
+  // Generación de ordenadas con ruido reproducible (mulberry32)
+  let noiseArray = new Array(allNodes.length).fill(0);
+  if (sigma > 0) {
+    const R = rng(seed);
+    noiseArray = allNodes.map(() => sigma * gauss(R));
+  }
+  const ys_true = xs.map(f);
+  const ys = xs.map(x => {
+    const idx = allNodes.indexOf(x);
+    return f(x) + (idx >= 0 ? noiseArray[idx] : 0);
+  });
+  const n = xs.length;
 
   const nwt = newtonCoef(xs, ys);
   const cN = nwt.coefs || nwt;
   const tableDD = nwt.table;
   const S = splineNatural(xs, ys);
 
+  // Evaluación del error de predicción en puntos ocultos frente a la función VERDADERA (sin ruido)
   const eval_lagrange = evalOnPoints(x => lagrangeEval(xs, ys, x), X_ocultos, f);
   const eval_newton = evalOnPoints(x => newtonEval(xs, cN, x), X_ocultos, f);
   const eval_spline = evalOnPoints(x => splineEval(S, x), X_ocultos, f);
@@ -566,7 +609,7 @@ function modInterp(p) {
   const domMin = Math.min(xs[0], ...(X_ocultos.length ? X_ocultos : []));
   const domMax = Math.max(xs[n - 1], ...(X_ocultos.length ? X_ocultos : []));
   const grid = linspace(domMin, domMax, 220);
-  const fT = grid.map(f);
+  const fT = grid.map(f); // Función verdadera sin ruido
   const fL = grid.map(t => lagrangeEval(xs, ys, t));
   const fN = grid.map(t => newtonEval(xs, cN, t));
   const fS = grid.map(t => splineEval(S, t));
@@ -577,6 +620,59 @@ function modInterp(p) {
     if (d > diffLN) diffLN = d;
   }
 
+  // Subexperimento numérico de Lebesgue, sensibilidad a perturbación y análisis de Runge
+  let subexp_lebesgue = null;
+  if (n >= 3 && n <= 45) {
+    const domA = domMin, domB = domMax;
+    const N_tot = allNodes.length;
+    const lebUsados = lebesgueConstant(xs, 500);
+    const chebNodes = [];
+    for (let j = 0; j < N_tot; j++) {
+      chebNodes.push(0.5 * (domA + domB) - 0.5 * (domB - domA) * Math.cos(j * Math.PI / (N_tot - 1)));
+    }
+    const lebCheb = lebesgueConstant(chebNodes, 500);
+    const lebEqui = lebesgueConstant(linspace(domA, domB, N_tot), 500);
+
+    // Prueba de sensibilidad: perturbación epsilon en las ordenadas
+    const eps = 1e-6;
+    const ysPert = ys.map((y, i) => y + eps * (i % 2 === 0 ? 1 : -1));
+    const fLPert = grid.map(t => lagrangeEval(xs, ysPert, t));
+    let maxDiffPert = 0;
+    for (let i = 0; i < grid.length; i++) {
+      const d = Math.abs(fLPert[i] - fL[i]);
+      if (d > maxDiffPert) maxDiffPert = d;
+    }
+    const ampMedida = maxDiffPert / eps;
+
+    // Error nominal sin ruido frente a función verdadera
+    let maxNominalErr = 0;
+    for (let i = 0; i < grid.length; i++) {
+      const d = Math.abs(fT[i] - fL[i]);
+      if (d > maxNominalErr) maxNominalErr = d;
+    }
+    const rungeObservado = (maxNominalErr > 1.0);
+
+    subexp_lebesgue = {
+      n: xs.length,
+      n_total: allNodes.length,
+      distrib: distrib,
+      lebesgue_equi: lebEqui,
+      lebesgue_cheb: lebCheb,
+      lebesgue_usados: lebUsados,
+      epsilon_perturbacion: eps,
+      error_perturbado_max: maxDiffPert,
+      amplificacion_medida: ampMedida,
+      cota_lebesgue_epsilon: lebUsados * eps,
+      runge_observado: rungeObservado,
+      error_nominal_max: maxNominalErr,
+      diagnostico: {
+        mal_condicionamiento: `Propiedad del problema: Λ_equi = ${fmt(lebEqui, 1)} >> Λ_cheb = ${fmt(lebCheb, 2)}. Nodos equiespaciados amplifican perturbaciones por factor medido de ${fmt(ampMedida, 1)}x.`,
+        falta_convergencia: `Propiedad del método: para ${p.func === 'exp' ? 'e^(−t)' : 'sen(t)'} sin ruido el error nominal es ${sci(maxNominalErr)} (el fenómeno clásico de Runge NO se observa por analiticidad global de la función).`,
+        riesgo_fisico: 'No aplica: es un análisis de estabilidad matemática de la discretización sensorial sin implicancia mecánica.'
+      }
+    };
+  }
+
   const peorL = eval_lagrange.peor_punto || (X_ocultos.length ? { x: X_ocultos[0], exacto: f(X_ocultos[0]), valor: lagrangeEval(xs, ys, X_ocultos[0]) } : { x: xs[0], exacto: ys[0], valor: ys[0] });
   const xtRef = peorL.x;
   const exRef = peorL.exacto;
@@ -585,7 +681,7 @@ function modInterp(p) {
   const SvRef = eval_spline.peor_punto ? eval_spline.peor_punto.valor : splineEval(S, xtRef);
 
   return {
-    xs, ys, n,
+    xs, ys, ys_true, noiseArray, n,
     nodos_usados: xs,
     allNodes,
     puntos_ocultos: X_ocultos,
@@ -602,6 +698,8 @@ function modInterp(p) {
     cota: cotaMax,
     cN, tableDD, diffLN,
     eval_lagrange, eval_newton, eval_spline,
+    subexp_lebesgue,
+    sigma, seed, distrib,
     grid, fT, fL, fN, fS, f
   };
 }
@@ -668,6 +766,9 @@ const FIELDS = {
     { k: 'b', l: 'Intervalo b' },
     { k: 'n', l: 'Total de nodos n' },
     { k: 'k', l: 'Puntos ocultos k (o índices)', t: 'text' },
+    { k: 'distrib', l: 'Distribución nodos', t: 'select', o: [['equi', 'Equiespaciados'], ['cheb', 'Chebyshev']] },
+    { k: 'sigma', l: 'σ ruido gaussiano' },
+    { k: 'seed', l: 'Semilla' },
     { k: 'M', l: 'M = máx |f⁽ⁿ⁾|' }
   ]
 };
@@ -699,8 +800,8 @@ function setForm(key, obj) {
 function applyScenario() { const S = $('scen').value; ['m1', 'm2', 'm3', 'm4', 'mi'].forEach(m => setForm(m, PRE[S][m])); schedule(); }
 function applyPreset(m) { setForm(m, PRE[$('scen').value][m]); schedule(); }
 function presetInterp(i) {
-  if (i === 0) setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 3, k: 1, M: 1 });
-  else setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 7, k: 3, M: 1 });
+  if (i === 0) setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 3, k: '[1]', distrib: 'equi', sigma: 0, seed: 2026, M: 1 });
+  else setForm('mi', { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1 });
   schedule();
 }
 
@@ -708,9 +809,9 @@ function presetInterp(i) {
    RENDER · KPIs y módulos
    ===================================================================== */
 let timer = null, LAST = {};
-window.IS_QUERY_MODE = false;
+if (typeof window !== 'undefined') window.IS_QUERY_MODE = false;
 function schedule() {
-  if (window.IS_QUERY_MODE) return;
+  if (typeof window !== 'undefined' && window.IS_QUERY_MODE) return;
   clearTimeout(timer);
   timer = setTimeout(recalcAll, 90);
 }
@@ -909,8 +1010,20 @@ function render4(r, ri) {
     ], 'Variable t', 'Función f(t)');
   }
 
+  let extraM4 = '';
+  if (ri && ri.subexp_lebesgue) {
+    const sl = ri.subexp_lebesgue;
+    extraM4 = `<p class="note"><b>Subexperimento de Estabilidad y Condicionamiento (N=${sl.n_total}):</b><br>` +
+      `Constante de Lebesgue: Λ_equi = ${fmt(sl.lebesgue_equi, 2)} vs Λ_cheb = ${fmt(sl.lebesgue_cheb, 2)}. ` +
+      `Prueba de sensibilidad: perturbación ε = ${sci(sl.epsilon_perturbacion)} amplificada ${fmt(sl.amplificacion_medida, 1)}x (cota Λ·ε = ${sci(sl.cota_lebesgue_epsilon)}). ` +
+      `${sl.diagnostico.mal_condicionamiento} ${sl.diagnostico.falta_convergencia} ${sl.diagnostico.riesgo_fisico}</p>`;
+  } else if (ri && ri.sigma > 0) {
+    extraM4 = `<p class="note"><b>Escenario de Alta Demanda de Datos y Ruido (Estrés):</b> N = ${ri.allNodes.length} nodos con perturbación gaussiana σ = ${fmt(ri.sigma, 3)} (semilla ${ri.seed}). El error de predicción se evalúa contra la función pura para cuantificar la propagación directa del ruido sensorial sobre la reconstrucción.</p>`;
+  }
+
   $('s5').innerHTML = `<p>Ajuste polinómico de grado ${r.n - 1} con ${r.r.length} muestras. La matriz AᵀA tiene κ₂ = ${sci(r.kap)}: un error relativo de 10⁻⁶ en los datos puede amplificarse hasta del orden de κ₂·10⁻⁶ en los coeficientes.</p>
-    ${ri ? `<p>Interpolación con ${ri.n} nodos usados y ${ri.k} punto${ri.k === 1 ? '' : 's'} oculto${ri.k === 1 ? '' : 's'} evaluado${ri.k === 1 ? '' : 's'}. Lagrange y Newton representan el mismo polinomio con error máximo ${sci(ri.eL)} y equivalencia numérica |P_L − P_N|_max = ${sci(ri.diffLN)}. El spline cúbico natural obtiene error máximo ${sci(ri.eS)} (RMS = ${sci(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS)}), amortiguando oscilaciones espurias.</p>` : ''}`;
+    ${ri ? `<p>Interpolación con ${ri.n} nodos usados y ${ri.k} punto${ri.k === 1 ? '' : 's'} oculto${ri.k === 1 ? '' : 's'} evaluado${ri.k === 1 ? '' : 's'}. Lagrange y Newton representan el mismo polinomio con error máximo ${sci(ri.eL)} y equivalencia numérica |P_L − P_N|_max = ${sci(ri.diffLN)}. El spline cúbico natural obtiene error máximo ${sci(ri.eS)} (RMS = ${sci(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS)}), amortiguando oscilaciones espurias.</p>` : ''}
+    ${extraM4}`;
 }
 
 function renderMethods() {
@@ -1287,45 +1400,50 @@ function importJSON(ev) {
 const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
 const fillForms = S => ['m1', 'm2', 'm3', 'm4', 'mi'].forEach(m => setForm(m, PRE[S][m]));
 
-document.addEventListener('DOMContentLoaded', () => {
-  buildForms();
-  fillForms(val('scen') || 'N');
-  on('scen', 'change', applyScenario);
-  ['fm1', 'fm2', 'fm3', 'fm4', 'fmi'].forEach(id => { on(id, 'input', schedule); on(id, 'change', schedule); });
-  document.querySelectorAll('[data-live]').forEach(el => {
-    el.addEventListener('input', schedule);
-    el.addEventListener('change', schedule);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    buildForms();
+    fillForms(val('scen') || 'N');
+    on('scen', 'change', applyScenario);
+    ['fm1', 'fm2', 'fm3', 'fm4', 'fmi'].forEach(id => { on(id, 'input', schedule); on(id, 'change', schedule); });
+    document.querySelectorAll('[data-live]').forEach(el => {
+      el.addEventListener('input', schedule);
+      el.addEventListener('change', schedule);
+    });
+    on('solSys', 'change', () => renderMethods());
+    on('exRef', 'input', () => renderErrors());
+    on('exApx', 'input', () => renderErrors());
+    on('exMat', 'change', () => renderErrors());
+    on('btnExp', 'click', exportJSON);
+    on('fileIn', 'change', importJSON);
+    if (typeof window !== 'undefined') {
+      window.applyScenario = applyScenario;
+      window.setForm = setForm;
+      window.recalcAll = recalcAll;
+      window.schedule = schedule;
+      window.chart = chart;
+      window.ds = ds;
+      window.C = C;
+      window.kpi = kpi;
+      window.pill = pill;
+      window.fmt = fmt;
+      window.sci = sci;
+      window.tbl = tbl;
+      window.MODEL1 = MODEL1;
+      window.LAT3 = LAT3;
+      window.SYS = SYS;
+      window.solverRows = solverRows;
+      window.PRE = PRE;
+      window.renderKPIs = renderKPIs;
+      window.render1 = render1;
+      window.render2 = render2;
+      window.render3 = render3;
+      window.render4 = render4;
+      window.lebesgueConstant = lebesgueConstant;
+    }
+    recalcAll();
   });
-  on('solSys', 'change', () => renderMethods());
-  on('exRef', 'input', () => renderErrors());
-  on('exApx', 'input', () => renderErrors());
-  on('exMat', 'change', () => renderErrors());
-  on('btnExp', 'click', exportJSON);
-  on('fileIn', 'change', importJSON);
-  window.applyScenario = applyScenario;
-  window.setForm = setForm;
-  window.recalcAll = recalcAll;
-  window.schedule = schedule;
-  window.chart = chart;
-  window.ds = ds;
-  window.C = C;
-  window.kpi = kpi;
-  window.pill = pill;
-  window.fmt = fmt;
-  window.sci = sci;
-  window.tbl = tbl;
-  window.MODEL1 = MODEL1;
-  window.LAT3 = LAT3;
-  window.SYS = SYS;
-  window.solverRows = solverRows;
-  window.PRE = PRE;
-  window.renderKPIs = renderKPIs;
-  window.render1 = render1;
-  window.render2 = render2;
-  window.render3 = render3;
-  window.render4 = render4;
-  recalcAll();
-});
+}
 
 if (typeof window !== 'undefined') {
   window.SYS = SYS;
@@ -1339,4 +1457,12 @@ if (typeof window !== 'undefined') {
   window.mod4 = mod4;
   window.modInterp = modInterp;
   window.evalOnPoints = evalOnPoints;
+  window.lebesgueConstant = lebesgueConstant;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    SYS, solverRows, PRE, readForm, LAST,
+    mod1, mod2, mod3, mod4, modInterp, evalOnPoints, lebesgueConstant
+  };
 }
