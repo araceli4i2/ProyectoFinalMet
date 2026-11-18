@@ -540,7 +540,7 @@ const Mapper = (() => {
       if (ri.subexp_lebesgue) {
         concNumSpline += ` Condicionamiento: Spline C² local no sufre del crecimiento exponencial de Lebesgue (Λ_equi=${sanitizeNumber(ri.subexp_lebesgue.lebesgue_equi)}).`;
       } else if (ri.sigma > 0) {
-        concNumSpline += ` Régimen de alta demanda y ruido σ=${ri.sigma}: el spline cúbico amortigua el ruido manteniendo el error acotado en ~0.14 (~2σ), inmune al mal condicionamiento polinomial.`;
+        concNumSpline += ` Régimen de alta demanda y ruido σ=${ri.sigma} (realización semilla ${ri.seed}): el spline natural interpolante pasa por los datos ruidosos, no los filtra; su error queda del orden del ruido (~0.14) porque no lo amplifica (no es más preciso en general, pero evita la divergencia polinomial).`;
       }
 
       executions.push({
@@ -601,7 +601,7 @@ const Mapper = (() => {
         const sl = ri.subexp_lebesgue;
         concNumLagrange += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
       } else if (ri.sigma > 0) {
-        concNumLagrange += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma}: el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
+        concNumLagrange += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
       }
 
       executions.push({
@@ -662,7 +662,7 @@ const Mapper = (() => {
         const sl = ri.subexp_lebesgue;
         concNumNewton += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
       } else if (ri.sigma > 0) {
-        concNumNewton += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma}: el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
+        concNumNewton += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
       }
 
       const newtonIters = [];
