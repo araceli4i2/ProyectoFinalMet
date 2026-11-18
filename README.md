@@ -487,8 +487,14 @@ El sistema incorpora un motor de certificación de reproducibilidad matemática:
 ### Datos Semilla Reales y Versionado de la Base (Paso 3D)
 
 - **Generador Determinista (`tools/gen_seed.js`)**: Ejecuta el motor numérico real de la aplicación en un entorno headless y genera `db/seed.sql` con fechas fijas y hashes reproducibles.
-  * Versión 4 Simulaciones (Normales): **338.90 KB (0.33 MB)**.
+  * Versión 4 Simulaciones (Normales): **338.90 KB (0.33 MB)** en archivo SQL de texto.
   * Versión 12 Simulaciones (Normal, Estrés, MC): **3.77 MB**.
+- **Métricas Reales de Almacenamiento Binario SQLite (`db.export()` medido con `tools/measure_db_size.js`)**:
+  * **Base inicial (Seed con 4 simulaciones completas)**: **336.00 KB (0.33 MB)** — 23 ejecuciones, 1,489 iteraciones, 28 series.
+  * **Base tras 1 guardado completo Normal (+4 sims, 8 total)**: **600.00 KB (0.59 MB)** — 46 ejecuciones, 2,978 iteraciones, 56 series.
+  * **Base tras 5 guardados completos Normal (+20 sims, 24 total)**: **1,660.00 KB (1.62 MB)** — 138 ejecuciones, 8,934 iteraciones, 168 series.
+  * **Base tras guardar Normal, Estrés y Mal Condicionado (+12 sims, 16 total)**: **3,920.00 KB (3.83 MB)** — 92 ejecuciones, 7,253 iteraciones, 112 series.
+  * *Distribución del almacenamiento:* ~85% del peso corresponde a `serie_grafico` para graficación inmediata sin recálculo, y ~12% a `iteracion_resultado` gracias al muestreo determinista uniforme a 500 puntos.
 - **Versionado (`PRAGMA user_version = 2`)**:
   * Detecta bases de datos v1 antiguas persistidas en el `IndexedDB` del navegador.
   * Muestra el banner interactivo `#dbUpgradeBanner` con el botón *"Actualizar ejemplos"*.
