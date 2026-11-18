@@ -136,7 +136,22 @@ function solverRows(A, b, xref, tol, maxIt = 50000, normType = 'inf') {
 const rhoObs = h => { const n = h.length; if (n < 25) return null; const a = h[n - 1], b = h[n - 11]; return (a > 0 && b > 0) ? Math.pow(a / b, 0.1) : null; };
 
 /* ---------- interpolación ---------- */
-function newtonCoef(xs, ys) { const n = xs.length, c = ys.slice(); for (let j = 1; j < n; j++) for (let i = n - 1; i >= j; i--) c[i] = (c[i] - c[i - 1]) / (xs[i] - xs[i - j]); return c; }
+function newtonCoef(xs, ys) {
+  const n = xs.length;
+  const table = [];
+  table[0] = ys.slice();
+  for (let k = 1; k < n; k++) {
+    const row = [];
+    for (let i = 0; i < n - k; i++) {
+      row.push((table[k - 1][i + 1] - table[k - 1][i]) / (xs[i + k] - xs[i]));
+    }
+    table.push(row);
+  }
+  const coefs = table.map(row => row[0]);
+  coefs.table = table;
+  coefs.coefs = coefs;
+  return coefs;
+}
 function newtonEval(xs, c, x) { let p = c[c.length - 1]; for (let i = c.length - 2; i >= 0; i--) p = p * (x - xs[i]) + c[i]; return p; }
 function lagrangeEval(xs, ys, x) {
   let s = 0;
@@ -429,7 +444,10 @@ function modInterp(p) {
   if (xs.length < 2) return null;
   const ys = xs.map(f), n = xs.length, xt = p.xt;
   const L = lagrangeEval(xs, ys, xt);
-  const cN = newtonCoef(xs, ys), Nw = newtonEval(xs, cN, xt);
+  const nwt = newtonCoef(xs, ys);
+  const cN = nwt.coefs || nwt;
+  const tableDD = nwt.table;
+  const Nw = newtonEval(xs, cN, xt);
   const S = splineNatural(xs, ys), Sv = splineEval(S, xt);
   const ex = f(xt);
   let prod = 1; xs.forEach(xi => prod *= Math.abs(xt - xi));
@@ -437,8 +455,11 @@ function modInterp(p) {
   const grid = linspace(xs[0], xs[n - 1], 220);
   return {
     xs, ys, n, xt, L, Nw, Sv, ex, cota: p.M * prod / fact,
+    cN, tableDD,
     eL: Math.abs(ex - L), eN: Math.abs(ex - Nw), eS: Math.abs(ex - Sv),
-    grid, fT: grid.map(f), fL: grid.map(t => lagrangeEval(xs, ys, t)), fS: grid.map(t => splineEval(S, t))
+    grid, fT: grid.map(f), fL: grid.map(t => lagrangeEval(xs, ys, t)),
+    fN: grid.map(t => newtonEval(xs, cN, t)),
+    fS: grid.map(t => splineEval(S, t))
   };
 }
 

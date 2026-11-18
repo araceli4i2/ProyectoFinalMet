@@ -2,7 +2,7 @@
  * tools/measure_db_size.js
  * Medición rigurosa y unificada del tamaño de la base de datos SQLite (db.export()):
  * 1. seed solo (4 simulaciones de ejemplo)
- * 2. seed + 1 guardado interactivo completo de Normal (M1 a M4, 23 ejecuciones)
+ * 2. seed + 1 guardado interactivo completo de Normal (M1 a M4, 25 ejecuciones)
  * 3. seed + 5 guardados interactivos completos de Normal
  * 4. seed + guardados interactivos completos de Normal, Estrés y Mal Condicionado
  * 

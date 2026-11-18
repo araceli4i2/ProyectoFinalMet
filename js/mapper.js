@@ -510,6 +510,7 @@ const Mapper = (() => {
 
       // Interpolación (si existe)
       if (ri) {
+        // 1. Spline Cúbico Natural
         executions.push({
           caso_id: 4,
           familia: 'INTERPOLACION',
@@ -530,8 +531,76 @@ const Mapper = (() => {
           },
           series: [
             { nombre: 'M4_interp_spline', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fS ? ri.fS[i] : null }))) },
-            { nombre: 'M4_interp_lagrange', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fL ? ri.fL[i] : null }))) },
             { nombre: 'M4_puntos_ocultos', datos_json: JSON.stringify((ri.xs || []).map((x, i) => ({ x, y: ri.ys ? ri.ys[i] : null }))) }
+          ]
+        });
+
+        // 2. Polinomio de Lagrange
+        executions.push({
+          caso_id: 4,
+          familia: 'INTERPOLACION',
+          metodo: 'Polinomio de Lagrange',
+          tolerancia: null,
+          paso: null,
+          max_iter: ri.n ? ri.n - 1 : 2,
+          convergio: true,
+          estado: 'COMPLETADO',
+          tiempo_ms: null,
+          iteraciones: [],
+          resumen: {
+            referencia: 'Función exacta f(x̂)',
+            valor_json: JSON.stringify({ P_xt: sanitizeNumber(ri.L), exacto: sanitizeNumber(ri.ex), grado: (ri.n || 1) - 1 }),
+            metrica_error_json: JSON.stringify({ error_abs: sanitizeNumber(ri.eL), cota_teorica: sanitizeNumber(ri.cota) }),
+            conclusion_numerica: 'Forma canónica de Lagrange evaluada en punto de prueba.',
+            conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
+          },
+          series: [
+            { nombre: 'M4_interp_lagrange', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fL ? ri.fL[i] : null }))) }
+          ]
+        });
+
+        // 3. Newton Diferencias Divididas
+        const newtonIters = [];
+        if (Array.isArray(ri.tableDD)) {
+          ri.tableDD.forEach((row, k) => {
+            newtonIters.push({
+              numero: k,
+              aproximacion_json: JSON.stringify({
+                orden: k,
+                coef: sanitizeNumber(ri.cN ? ri.cN[k] : null),
+                diferencias: row.map(sanitizeNumber)
+              }),
+              residual: null,
+              error_abs: null,
+              error_rel: null
+            });
+          });
+        }
+        executions.push({
+          caso_id: 4,
+          familia: 'INTERPOLACION',
+          metodo: 'Newton Diferencias Divididas',
+          tolerancia: null,
+          paso: null,
+          max_iter: ri.n ? ri.n - 1 : 2,
+          convergio: true,
+          estado: 'COMPLETADO',
+          tiempo_ms: null,
+          iteraciones: newtonIters,
+          resumen: {
+            referencia: 'Función exacta f(x̂)',
+            valor_json: JSON.stringify({
+              P_xt: sanitizeNumber(ri.Nw),
+              exacto: sanitizeNumber(ri.ex),
+              coeficientes: (ri.cN || []).map(sanitizeNumber),
+              grado: (ri.n || 1) - 1
+            }),
+            metrica_error_json: JSON.stringify({ error_abs: sanitizeNumber(ri.eN), cota_teorica: sanitizeNumber(ri.cota) }),
+            conclusion_numerica: 'Interpolación mediante esquema triangular de diferencias divididas.',
+            conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'
+          },
+          series: [
+            { nombre: 'M4_interp_newton_dd', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fN ? ri.fN[i] : (ri.fL ? ri.fL[i] : null) }))) }
           ]
         });
       }
