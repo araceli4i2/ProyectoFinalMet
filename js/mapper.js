@@ -82,7 +82,25 @@ const Mapper = (() => {
     if (val === null || val === undefined) return null;
     const num = Number(val);
     if (!Number.isFinite(num) || Number.isNaN(num)) return null;
+    if (Math.abs(num) > 1e99) return null; // Overflow / divergencia asintótica
     return num;
+  }
+
+  function mapResidualSeries(hist, defaultR0, defaultRes) {
+    if (Array.isArray(hist) && hist.length > 0) {
+      const pts = [];
+      for (let k = 0; k < hist.length; k++) {
+        const v = sanitizeNumber(hist[k]);
+        if (v !== null && Number.isFinite(v)) {
+          pts.push({ x: k, y: v });
+        }
+      }
+      if (pts.length > 0) return pts;
+    }
+    return [
+      { x: 0, y: sanitizeNumber(defaultR0 || 1.0) },
+      { x: 1, y: sanitizeNumber(defaultRes || 0.0) }
+    ];
   }
 
   function safeRelError(errAbs, refVal) {
@@ -259,11 +277,7 @@ const Mapper = (() => {
             series: [
               {
                 nombre: `M1_residual_${slug(q.nombre)}`,
-                datos_json: JSON.stringify(
-                  (q.hist && q.hist.length > 0)
-                    ? q.hist.map((v, k) => ({ x: k, y: sanitizeNumber(v) }))
-                    : [{ x: 0, y: 19.5 }, { x: 1, y: sanitizeNumber(q.res || 0.0) }]
-                )
+                datos_json: JSON.stringify(mapResidualSeries(q.hist, 19.5, q.res))
               }
             ]
           });
@@ -399,11 +413,7 @@ const Mapper = (() => {
             series: [
               {
                 nombre: `M2_residual_${slug(q.nombre)}`,
-                datos_json: JSON.stringify(
-                  (q.hist && q.hist.length > 0)
-                    ? q.hist.map((v, k) => ({ x: k, y: sanitizeNumber(v) }))
-                    : [{ x: 0, y: 1.0 }, { x: 1, y: sanitizeNumber(q.res || 0.0) }]
-                )
+                datos_json: JSON.stringify(mapResidualSeries(q.hist, 1.0, q.res))
               }
             ]
           });
@@ -477,11 +487,7 @@ const Mapper = (() => {
             series: [
               {
                 nombre: `M3_residual_${slug(q.nombre)}`,
-                datos_json: JSON.stringify(
-                  (q.hist && q.hist.length > 0)
-                    ? q.hist.map((v, k) => ({ x: k, y: sanitizeNumber(v) }))
-                    : [{ x: 0, y: 1.0 }, { x: 1, y: sanitizeNumber(q.res || 0.0) }]
-                )
+                datos_json: JSON.stringify(mapResidualSeries(q.hist, 1.0, q.res))
               }
             ]
           });
@@ -498,11 +504,7 @@ const Mapper = (() => {
         const sers = [
           {
             nombre: `M4_residual_${slug(q.nombre)}`,
-            datos_json: JSON.stringify(
-              (q.hist && q.hist.length > 0)
-                ? q.hist.map((v, k) => ({ x: k, y: sanitizeNumber(v) }))
-                : [{ x: 0, y: 1.0 }, { x: 1, y: sanitizeNumber(q.res || 0.0) }]
-            )
+            datos_json: JSON.stringify(mapResidualSeries(q.hist, 1.0, q.res))
           }
         ];
         if (idx === 0) {
