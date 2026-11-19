@@ -844,31 +844,137 @@ PRAGMA user_version = 2;
       }
     } else {
       const missingPlots = [];
-      const plotOrWarn = (canvasId, serieNamePrefix, xLabel, yLabel, color, opts={}) => {
-        const s = allSeries.find(item => item.nombre.includes(serieNamePrefix));
+      const getSeriesData = (nameExact, fallbackPrefix = null) => {
+        let s = allSeries.find(item => item.nombre === nameExact);
+        if (!s && fallbackPrefix) {
+          s = allSeries.find(item => item.nombre.includes(fallbackPrefix));
+        }
         if (s && s.datos_json) {
           try {
             const pts = JSON.parse(s.datos_json);
-            if (Array.isArray(pts) && pts.length > 0) {
-              chart(canvasId, 'line', [ds(s.nombre, pts, color, opts)], xLabel, yLabel);
-              return true;
-            }
+            if (Array.isArray(pts) && pts.length > 0) return { nombre: s.nombre, pts };
           } catch (e) {
             console.warn(`Aviso: Error parseando datos de la serie ${s.nombre}:`, e.message);
           }
         }
-        missingPlots.push(serieNamePrefix);
-        console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie '${serieNamePrefix}'. Se omite la visualización de ${canvasId} sin error.`);
-        return false;
+        return null;
       };
 
-      plotOrWarn('c1', 'velocidad', 'Tiempo t (s)', 'Velocidad v (m/s)', C.O, { bw: 3 });
-      plotOrWarn('c2', 'posicion', 'Tiempo t (s)', 'Distancia (m)', C.Y, { bw: 3 });
-      plotOrWarn('c4', 'deterioro', 'Tiempo t (meses)', 'D(t)', C.O, { bw: 3 });
-      plotOrWarn('c5', 'sensibilidad', 'Margen ΔD', 't* (meses)', C.O, { bw: 3, xType: 'logarithmic', yType: 'logarithmic' });
-      plotOrWarn('c6', 'resonancia', 'Frecuencia Ω (rad/s)', 'Amplitud X (m)', C.O, { bw: 3 });
-      plotOrWarn('c7', 'oscilacion', 'Tiempo t (s)', 'Desplazamiento x (m)', C.O, { bw: 2 });
-      plotOrWarn('c8', 'ajuste', 'Variable r', 'y(r)', C.O, { bw: 3 });
+      const casoId = (escenario && escenario.caso_id) ? Number(escenario.caso_id) : null;
+
+      // MÓDULO 1: Detención de emergencia (Gráficos c1 y c2)
+      if (casoId === 1 || allSeries.some(s => s.nombre.startsWith('M1_'))) {
+        const dsV = [];
+        const sRk4V = getSeriesData('M1_velocidad_rk4', 'velocidad_rk4');
+        const sHeuV = getSeriesData('M1_velocidad_heun', 'velocidad_heun');
+        if (sRk4V) dsV.push(ds('Runge-Kutta 4', sRk4V.pts, C.O, { bw: 3 }));
+        if (sHeuV) dsV.push(ds('Heun (RK2)', sHeuV.pts, C.Y, { bw: 2, dash: [4, 4] }));
+
+        if (dsV.length > 0) {
+          chart('c1', 'line', dsV, 'Tiempo desde inicio del frenado t (s)', 'Velocidad v (m/s)');
+        } else {
+          missingPlots.push('velocidad (c1)');
+          console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie 'velocidad'. Se omite la visualización de c1 sin error.`);
+        }
+
+        const sPos = getSeriesData('M1_posicion_rk4', 'posicion_rk4');
+        if (sPos) {
+          chart('c2', 'line', [ds('Distancia total', sPos.pts, C.Y, { bw: 3 })], 'Tiempo t (s)', 'Distancia total (m)');
+        } else {
+          missingPlots.push('posicion (c2)');
+          console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie 'posicion'. Se omite la visualización de c2 sin error.`);
+        }
+      }
+
+      // MÓDULO 2: Deterioro mecánico (Gráficos c4 y c5)
+      if (casoId === 2 || allSeries.some(s => s.nombre.startsWith('M2_'))) {
+        const sDet = getSeriesData('M2_deterioro_curva', 'deterioro');
+        if (sDet) {
+          chart('c4', 'line', [ds('D(t) Modelo cuadrático', sDet.pts, C.O, { bw: 3 })], 'Tiempo t (meses)', 'Índice de deterioro D(t)');
+        } else {
+          missingPlots.push('deterioro (c4)');
+          console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie 'deterioro'. Se omite la visualización de c4 sin error.`);
+        }
+
+        const sSens = getSeriesData('M2_sensibilidad_sweep', 'sensibilidad');
+        if (sSens) {
+          chart('c5', 'line', [ds('Sensibilidad dt*/dDu', sSens.pts, C.O, { bw: 3, xType: 'logarithmic', yType: 'logarithmic' })], 'Margen ΔD = D_u − D₀ (escala log)', 't* (meses, escala log)', { xType: 'logarithmic', yType: 'logarithmic' });
+        } else {
+          missingPlots.push('sensibilidad (c5)');
+          console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie 'sensibilidad'. Se omite la visualización de c5 sin error.`);
+        }
+      }
+
+      // MÓDULO 3: Oscilaciones por viento (Gráficos c6 y c7)
+      if (casoId === 3 || allSeries.some(s => s.nombre.startsWith('M3_'))) {
+        const sRes = getSeriesData('M3_resonancia_espectro', 'resonancia');
+        if (sRes) {
+          chart('c6', 'line', [ds('Curva teórica X(Ω)', sRes.pts, C.O, { bw: 2 })], 'Frecuencia de excitación Ω (rad/s)', 'Amplitud en régimen X (m)');
+        } else {
+          missingPlots.push('resonancia (c6)');
+          console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie 'resonancia'. Se omite la visualización de c6 sin error.`);
+        }
+
+        const sOsc = getSeriesData('M3_oscilacion_tiempo', 'oscilacion');
+        if (sOsc) {
+          chart('c7', 'line', [ds('x(t) Numérico (RK4)', sOsc.pts, C.O, { bw: 2 })], 'Tiempo t (s)', 'Desplazamiento x (m)');
+        } else {
+          missingPlots.push('oscilacion (c7)');
+          console.warn(`Aviso: La simulación #${simulacion.id} no incluye la serie 'oscilacion'. Se omite la visualización de c7 sin error.`);
+        }
+      }
+
+      // MÓDULO 4: Calibración e interpolación (Gráficos c8, c9 y c12)
+      if (casoId === 4 || allSeries.some(s => s.nombre.startsWith('M4_'))) {
+        // c8: Ajuste polinómico
+        const ds8 = [];
+        const sPts = getSeriesData('M4_muestras_sensores', 'muestras');
+        const sFit = getSeriesData('M4_ajuste_polinomico', 'ajuste');
+        if (sPts) ds8.push(ds('Muestras con ruido', sPts.pts, C.O2, { bw: 0, pr: 4, ps: 'circle', line: false }));
+        if (sFit) ds8.push(ds('Ajuste polinómico', sFit.pts, C.O, { bw: 3 }));
+        if (ds8.length > 0) {
+          chart('c8', 'line', ds8, 'Variable independiente r', 'Respuesta y(r)');
+        } else {
+          missingPlots.push('ajuste (c8)');
+          console.warn(`Aviso: La simulación #${simulacion.id} no incluye series de ajuste. Se omite la visualización de c8 sin error.`);
+        }
+
+        // c9: Interpolación de sensores (exacta, nodos usados, puntos ocultos, spline, lagrange, newton)
+        const ds9 = [];
+        const sEx = getSeriesData('M4_curva_exacta', 'curva_exacta');
+        const sSpl = getSeriesData('M4_interp_spline', 'interp_spline');
+        const sLag = getSeriesData('M4_interp_lagrange', 'interp_lagrange');
+        const sNew = getSeriesData('M4_interp_newton_dd', 'interp_newton');
+        const sNod = getSeriesData('M4_nodos_usados', 'nodos_usados');
+        const sOcu = getSeriesData('M4_puntos_ocultos', 'puntos_ocultos');
+
+        if (sEx) ds9.push(ds('Función exacta f(t)', sEx.pts, C.W, { bw: 2, dash: [4, 4] }));
+        if (sSpl) ds9.push(ds('Spline Cúbico Natural', sSpl.pts, C.O, { bw: 2 }));
+        if (sLag) ds9.push(ds('Polinomio de Lagrange', sLag.pts, C.Y, { bw: 2 }));
+        if (sNew) ds9.push(ds('Newton Diferencias Divididas', sNew.pts, C.G, { bw: 1.5, dash: [2, 2] }));
+        if (sNod) ds9.push(ds('Nodos usados', sNod.pts, C.O, { bw: 0, pr: 5, ps: 'circle', line: false }));
+        if (sOcu) ds9.push(ds('Puntos ocultos', sOcu.pts, C.R, { bw: 0, pr: 6, ps: 'triangle', line: false }));
+
+        if (ds9.length > 0) {
+          chart('c9', 'line', ds9, 'Variable t', 'Función f(t)');
+        }
+
+        // c12: Barrido de convergencia / error
+        const ds12 = [];
+        const sSwSpl = getSeriesData('M4_barrido_error_equi_spline', 'barrido_error_equi_spline');
+        const sSwLag = getSeriesData('M4_barrido_error_equi_lagrange', 'barrido_error_equi_lagrange');
+        const sSwChebS = getSeriesData('M4_barrido_error_cheb_spline', 'barrido_error_cheb_spline');
+        const sSwChebL = getSeriesData('M4_barrido_error_cheb_lagrange', 'barrido_error_cheb_lagrange');
+
+        if (sSwSpl) ds12.push(ds('Spline (Equi)', sSwSpl.pts, C.O, { bw: 2 }));
+        if (sSwLag) ds12.push(ds('Lagrange (Equi)', sSwLag.pts, C.Y, { bw: 2 }));
+        if (sSwChebS) ds12.push(ds('Spline (Chebyshev)', sSwChebS.pts, C.G, { bw: 2, dash: [4, 4] }));
+        if (sSwChebL) ds12.push(ds('Lagrange (Chebyshev)', sSwChebL.pts, C.W, { bw: 2, dash: [4, 4] }));
+
+        if (ds12.length > 0) {
+          chart('c12', 'line', ds12, 'Número de nodos n', 'Error máximo en malla densa', { yType: 'logarithmic' });
+        }
+      }
 
       if (noticeEl) {
         if (missingPlots.length > 0) {

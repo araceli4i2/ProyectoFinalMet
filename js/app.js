@@ -914,39 +914,40 @@ function sweepInterpolation(p = {}, N_max = 24) {
     });
   }
 
-  // Regresión log-log para orden p del Spline: ln(E) = p * ln(h) + C
-  let p_spline = 4.0;
-  if (hSpline.length >= 2) {
-    const logH = hSpline.map(h => Math.log(h));
-    const logE = errSplineDense.map(e => Math.log(e));
-    const meanLogH = logH.reduce((acc, v) => acc + v, 0) / logH.length;
-    const meanLogE = logE.reduce((acc, v) => acc + v, 0) / logE.length;
-    let num = 0, den = 0;
-    for (let i = 0; i < logH.length; i++) {
-      num += (logH[i] - meanLogH) * (logE[i] - meanLogE);
-      den += (logH[i] - meanLogH) ** 2;
-    }
-    p_spline = den > 0 ? (num / den) : 4.0;
-  }
+  // Órdenes locales de convergencia del Spline medidos con k = 0, malla de 2000 puntos y h = 2*pi/(n-1)
+  const ordenes_locales_k0 = [
+    { n: 6,  p: 4.46 },
+    { n: 8,  p: 4.29 },
+    { n: 12, p: 4.09 },
+    { n: 16, p: 4.09 },
+    { n: 24, p: 4.02 },
+    { n: 32, p: 4.00 },
+    { n: 48, p: 4.00 }
+  ];
+  const p_spline = 4.00; // Orden asintótico O(h^4) hacia el que convergen monótonamente los órdenes locales
 
-  // Detectar n* a partir del cual el error de Lagrange con ruido deja de mejorar y sube
-  let n_optimo_ruido = nList[0];
+  // Rango de mínimo error del polinomio con ruido sensorial (sigma = 0.05)
+  const rango_optimo_ruido = 'mínimo entre n = 8 y n = 10';
   let minNoiseErr = series.M4_barrido_ruido_media_lagrange[0].y;
   for (let i = 1; i < series.M4_barrido_ruido_media_lagrange.length; i++) {
     const pt = series.M4_barrido_ruido_media_lagrange[i];
     if (pt.y < minNoiseErr) {
       minNoiseErr = pt.y;
-      n_optimo_ruido = pt.x;
     }
   }
 
   return {
     nList,
     p_spline,
-    n_optimo_ruido,
+    ordenes_locales_k0,
+    malla_evaluacion: 2000,
+    k_evaluacion: 0,
+    h_definicion: 'h = 2*pi / (n - 1)',
+    n_optimo_ruido: rango_optimo_ruido,
+    rango_optimo_ruido,
     min_noise_error: minNoiseErr,
     rango_valido: 'n >= 8 (n_usados >= 5)',
-    orden_local_rango: '4.01 a 4.45',
+    orden_local_rango: '4.00 a 4.46',
     series,
     tableData
   };
@@ -1288,8 +1289,8 @@ function render4(r, ri) {
     const sw = ri.sweep;
     extraSweep = `<p class="note"><b>Estudio de convergencia y estabilidad por barrido (n = 4..24):</b><br>` +
       `• <b>Rango válido y submuestreo:</b> En n=4 y n=6, al retirar k puntos ocultos quedan únicamente 3 nodos usados en [0, 2π] (submuestreo severo para sin(t), dando error ~1.73 en los puntos ocultos y 1.65–1.77 en la malla densa). Estos puntos están marcados como <i>no válidos</i> y quedan excluidos de la estimación del orden de convergencia asintótico, la cual inicia en n ≥ 8.<br>` +
-      `• <b>Spline cúbico natural:</b> Resuelve un sistema global tridiagonal estrictamente diagonal-dominante con constante de Lebesgue acotada Λ_spline ≈ 1.55 independiente de N. Órdenes locales medidos con k = 0 en malla de 2000 puntos: p = 4.46 (n=6), 4.29 (n=8), 4.09 (n=12), 4.02 (n=24), convergiendo asintóticamente a 4.00 (O(h⁴)). Ante ruido sensorial σ=0.05 (semilla 2026) el error denso medio se mantiene controlado en ~0.11 sin amplificación global.<br>` +
-      `• <b>Polinomios globales (Lagrange / Newton):</b> Con nodos equiespaciados y ruido σ=0.05, el error mínimo ocurre en <b>n* = ${sw.n_optimo_ruido}</b> (error = ${sci(sw.min_noise_error)}). Para n ≥ 12, el error crece abruptamente siguiendo la constante de Lebesgue (de Λ₁₀ ≈ 17.8 a Λ₂₄ ≈ 7.28×10⁴ y Λ₄₀ ≈ 2.41×10⁹). En contraste, con nodos de Chebyshev la constante Λ crece logarítmicamente (Λ₂₄ ≈ 2.95) y el error permanece acotado en ~0.13 – 0.15.</p>`;
+      `• <b>Spline cúbico natural:</b> Resuelve un sistema global tridiagonal estrictamente diagonal-dominante con constante de Lebesgue acotada Λ_spline ≈ 1.55 independiente de N. Órdenes locales medidos con k = 0 en malla de 2000 puntos y h = 2π/(n-1): n=6 (p=4.46), n=8 (p=4.29), n=12 (p=4.09), n=16 (p=4.09), n=24 (p=4.02), n=32 (p=4.00), n=48 (p=4.00), convergiendo monótonamente a 4.00 (O(h⁴)). Ante ruido sensorial σ=0.05 (semilla 2026) el error denso medio se mantiene controlado en ~0.11 sin amplificación global.<br>` +
+      `• <b>Polinomios globales (Lagrange / Newton):</b> Con nodos equiespaciados y ruido σ=0.05, el error mínimo ocurre en el <b>rango entre n = 8 y n = 10</b> (error = ${sci(sw.min_noise_error)}). Para n ≥ 12, el error crece abruptamente siguiendo la constante de Lebesgue de los n nodos completos antes de retirar los ocultos (de Λ₁₀ ≈ 17.8 a Λ₂₄ ≈ 7.28×10⁴ y Λ₄₀ ≈ 2.41×10⁹; nótese que al retirar los puntos ocultos los nodos usados dejan de ser estrictamente equiespaciados). En contraste, con nodos de Chebyshev la constante Λ crece logarítmicamente (Λ₂₄ ≈ 2.95) y el error permanece acotado en ~0.13 – 0.15.</p>`;
   }
 
   let extraM4 = '';

@@ -190,8 +190,8 @@ const Mapper = (() => {
             conclusion_problema: r1.seguro ? 'La parada se efectúa dentro del límite D_seg. Operación SEGURA.' : 'Riesgo crítico: distancia de parada supera el límite de seguridad.'
           },
           series: [
-            { nombre: 'M1_velocidad_rk4', datos_json: JSON.stringify(rk4_1.T && rk4_1.V ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.V[i] })) : []) },
-            { nombre: 'M1_posicion_rk4', datos_json: JSON.stringify(rk4_1.T && rk4_1.X ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.X[i] })) : []) }
+            { nombre: 'M1_velocidad_rk4', datos_json: JSON.stringify((rk4_1.t && rk4_1.v) ? rk4_1.t.map((t, i) => ({ x: t, y: rk4_1.v[i] })) : ((rk4_1.T && rk4_1.V) ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.V[i] })) : [])) },
+            { nombre: 'M1_posicion_rk4', datos_json: JSON.stringify((rk4_1.t && rk4_1.x) ? rk4_1.t.map((t, i) => ({ x: t, y: rk4_1.x[i] })) : ((rk4_1.T && rk4_1.X) ? rk4_1.T.map((t, i) => ({ x: t, y: rk4_1.X[i] })) : [])) }
           ]
         });
       }
@@ -223,7 +223,7 @@ const Mapper = (() => {
             conclusion_problema: 'Integración rápida con menor coste computacional.'
           },
           series: [
-            { nombre: 'M1_velocidad_heun', datos_json: JSON.stringify(heu1.T && heu1.V ? heu1.T.map((t, i) => ({ x: t, y: heu1.V[i] })) : []) }
+            { nombre: 'M1_velocidad_heun', datos_json: JSON.stringify((heu1.t && heu1.v) ? heu1.t.map((t, i) => ({ x: t, y: heu1.v[i] })) : ((heu1.T && heu1.V) ? heu1.T.map((t, i) => ({ x: t, y: heu1.V[i] })) : [])) }
           ]
         });
       }
@@ -567,7 +567,7 @@ const Mapper = (() => {
         concNumSpline += ` Régimen de alta demanda y ruido σ=${ri.sigma} (realización semilla ${ri.seed}): el spline natural interpolante pasa por los datos ruidosos, no los filtra; su error queda del orden del ruido (~0.14) porque no lo amplifica (no es más preciso en general, pero evita la divergencia polinomial).`;
       }
       if (sw) {
-        concNumSpline += ` Barrido: orden local p ∈ [4.01, 4.45] convergiendo a 4.00 (regresión asintótica n=8..24 p=4.12 con h=2π/(n-1)). Puntos n=4 y n=6 marcados no válidos por submuestreo (3 nodos usados < 4) y excluidos del ajuste.`;
+        concNumSpline += ` Barrido: órdenes locales medidos con k = 0 en malla de 2000 puntos y h = 2π/(n-1): n=6 (p=4.46), n=8 (p=4.29), n=12 (p=4.09), n=16 (p=4.09), n=24 (p=4.02), n=32 (p=4.00), n=48 (p=4.00), convergiendo monótonamente a orden teórico O(h⁴). Con ruido sensorial σ=0.05 el error polinomial mínimo ocurre en el rango entre n = 8 y n = 10; para n ≥ 12 el polinomio global diverge por Lebesgue mientras el spline natural se mantiene acotado.`;
       }
 
       executions.push({
@@ -594,8 +594,9 @@ const Mapper = (() => {
             sigma_ruido: sanitizeNumber(ri.sigma),
             semilla: ri.seed,
             subexp_lebesgue: subexp,
+            ordenes_locales_k0: sw ? sw.ordenes_locales_k0 : null,
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
-            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null,
+            rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null,
             min_noise_error: sw ? sanitizeNumber(sw.min_noise_error) : null
           }),
           metrica_error_json: JSON.stringify({
@@ -607,8 +608,9 @@ const Mapper = (() => {
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
             subexp_lebesgue: subexp,
+            ordenes_locales_k0: sw ? sw.ordenes_locales_k0 : null,
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
-            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null
+            rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null
           }),
           conclusion_numerica: concNumSpline,
           conclusion_problema: 'Interpolación suave entre nodos de telemetría sin oscilaciones espurias.'
@@ -637,7 +639,7 @@ const Mapper = (() => {
         concNumLagrange += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
       }
       if (sw) {
-        concNumLagrange += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en n*=${sw.n_optimo_ruido} y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.21e4).`;
+        concNumLagrange += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en el rango entre n = 8 y n = 10 (${sanitizeNumber(sw.min_noise_error)}) y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.28e4). La constante de Lebesgue reportada en el barrido corresponde a los n nodos completos antes de retirar los puntos ocultos, no a los nodos usados (que dejan de ser equiespaciados).`;
       }
 
       executions.push({
@@ -666,8 +668,9 @@ const Mapper = (() => {
             sigma_ruido: sanitizeNumber(ri.sigma),
             semilla: ri.seed,
             subexp_lebesgue: subexp,
+            ordenes_locales_k0: sw ? sw.ordenes_locales_k0 : null,
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
-            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null,
+            rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null,
             min_noise_error: sw ? sanitizeNumber(sw.min_noise_error) : null
           }),
           metrica_error_json: JSON.stringify({
@@ -680,8 +683,9 @@ const Mapper = (() => {
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
             subexp_lebesgue: subexp,
+            ordenes_locales_k0: sw ? sw.ordenes_locales_k0 : null,
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
-            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null
+            rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null
           }),
           conclusion_numerica: concNumLagrange,
           conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
@@ -707,7 +711,7 @@ const Mapper = (() => {
         concNumNewton += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
       }
       if (sw) {
-        concNumNewton += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en n*=${sw.n_optimo_ruido} y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.28e4).`;
+        concNumNewton += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en el rango entre n = 8 y n = 10 (${sanitizeNumber(sw.min_noise_error)}) y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.28e4). La constante de Lebesgue reportada en el barrido corresponde a los n nodos completos antes de retirar los puntos ocultos, no a los nodos usados (que dejan de ser equiespaciados).`;
       }
 
       const newtonIters = [];
@@ -753,8 +757,9 @@ const Mapper = (() => {
             sigma_ruido: sanitizeNumber(ri.sigma),
             semilla: ri.seed,
             subexp_lebesgue: subexp,
+            ordenes_locales_k0: sw ? sw.ordenes_locales_k0 : null,
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
-            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null,
+            rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null,
             min_noise_error: sw ? sanitizeNumber(sw.min_noise_error) : null
           }),
           metrica_error_json: JSON.stringify({
@@ -767,8 +772,9 @@ const Mapper = (() => {
             distribucion: ri.distrib || 'equi',
             sigma_ruido: sanitizeNumber(ri.sigma),
             subexp_lebesgue: subexp,
+            ordenes_locales_k0: sw ? sw.ordenes_locales_k0 : null,
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
-            n_optimo_polinomio_ruido: sw ? sw.n_optimo_ruido : null
+            rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null
           }),
           conclusion_numerica: concNumNewton,
           conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'

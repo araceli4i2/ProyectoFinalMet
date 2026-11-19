@@ -60,7 +60,42 @@ async function runPaso3BTests() {
   assert(global.window.IS_QUERY_MODE === true, 'window.IS_QUERY_MODE debe ser true');
   assert(domElements['queryModeBanner'].style.display === 'flex', 'El banner debe estar visible');
   assert(domElements['querySimId'].textContent === 1, 'El banner debe indicar simulación #1');
+  assert(domElements['chart_c1'], 'El gráfico c1 debe haberse redibujado para M1');
+  assert(domElements['chart_c1'].datasets && domElements['chart_c1'].datasets.length > 0, 'c1 debe contener la serie de velocidad redibujada');
+  assert(domElements['chart_c2'], 'El gráfico c2 debe haberse redibujado para M1');
+  assert(domElements['chart_c2'].datasets && domElements['chart_c2'].datasets.length > 0, 'c2 debe contener la serie de posición redibujada');
   console.log('   -> Banner y modo consulta activados correctamente.');
+  console.log('   -> Gráficos c1 y c2 de M1 redibujados exitosamente desde serie_grafico.');
+
+  // Verificando que Abrir redibuja los gráficos de M2, M3 y M4 desde serie_grafico
+  console.log('   -> Verificando redibujado de gráficos para Módulo 2 (#2)...');
+  const sim2 = DB.loadSimulation(2, db);
+  assert(sim2 !== null, 'Simulación #2 debe cargarse');
+  assert(domElements['chart_c4'], 'c4 (deterioro) debe haberse redibujado para M2');
+  assert(domElements['chart_c4'].datasets && domElements['chart_c4'].datasets.length > 0, 'c4 debe tener serie de deterioro');
+  assert(domElements['chart_c5'], 'c5 (sensibilidad) debe haberse redibujado para M2');
+  assert(domElements['chart_c5'].datasets && domElements['chart_c5'].datasets.length > 0, 'c5 debe tener serie de sensibilidad');
+
+  console.log('   -> Verificando redibujado de gráficos para Módulo 3 (#3)...');
+  const sim3 = DB.loadSimulation(3, db);
+  assert(sim3 !== null, 'Simulación #3 debe cargarse');
+  assert(domElements['chart_c6'], 'c6 (resonancia) debe haberse redibujado para M3');
+  assert(domElements['chart_c6'].datasets && domElements['chart_c6'].datasets.length > 0, 'c6 debe tener serie de resonancia');
+  assert(domElements['chart_c7'], 'c7 (oscilación) debe haberse redibujado para M3');
+  assert(domElements['chart_c7'].datasets && domElements['chart_c7'].datasets.length > 0, 'c7 debe tener serie de oscilación');
+
+  console.log('   -> Verificando redibujado de gráficos para Módulo 4 (#4)...');
+  const sim4 = DB.loadSimulation(4, db);
+  assert(sim4 !== null, 'Simulación #4 debe cargarse');
+  assert(domElements['chart_c8'], 'c8 (ajuste) debe haberse redibujado para M4');
+  assert(domElements['chart_c8'].datasets && domElements['chart_c8'].datasets.length > 0, 'c8 debe tener series de ajuste');
+  assert(domElements['chart_c9'], 'c9 (interpolación) debe haberse redibujado para M4');
+  assert(domElements['chart_c9'].datasets && domElements['chart_c9'].datasets.length > 0, 'c9 debe tener series de interpolación');
+  assert(domElements['chart_c12'], 'c12 (barrido) debe haberse redibujado para M4');
+  assert(domElements['chart_c12'].datasets && domElements['chart_c12'].datasets.length > 0, 'c12 debe tener series de barrido');
+
+  // Restaurar simulación #1 para los siguientes tests
+  DB.loadSimulation(1, db);
 
 
   // --- TEST 2: Prueba que demuestra que NO recalcula ---

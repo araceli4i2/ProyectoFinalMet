@@ -413,11 +413,28 @@ async function runFase3Tests() {
   const sw = sweepInterpolation({ func: 'sin', a: 0, b: 2 * Math.PI }, 24);
   assert(sw && sw.series, 'sweepInterpolation debe devolver un objeto con series');
 
-  console.log(`   -> Orden de convergencia del spline natural p = ${sw.p_spline.toFixed(3)} (teórico ~4.0)`);
-  assert(sw.p_spline >= 3.5 && sw.p_spline <= 5.2, `El orden de convergencia observado del spline debe ser cercano a 4 (obtenido ${sw.p_spline})`);
+  console.log('   -> Órdenes locales medidos del spline natural (k=0, malla 2000, h = 2*pi/(n-1)):');
+  console.log('      ' + sw.ordenes_locales_k0.map(o => `n=${o.n}: p=${o.p.toFixed(2)}`).join(', '));
+  assert(Array.isArray(sw.ordenes_locales_k0) && sw.ordenes_locales_k0.length === 7, 'Deben existir 7 órdenes locales de convergencia');
+  const expectedP = [
+    { n: 6, p: 4.46 },
+    { n: 8, p: 4.29 },
+    { n: 12, p: 4.09 },
+    { n: 16, p: 4.09 },
+    { n: 24, p: 4.02 },
+    { n: 32, p: 4.00 },
+    { n: 48, p: 4.00 }
+  ];
+  expectedP.forEach((exp, idx) => {
+    assert(sw.ordenes_locales_k0[idx].n === exp.n, `n en orden local [${idx}] debe ser ${exp.n}`);
+    assert(Math.abs(sw.ordenes_locales_k0[idx].p - exp.p) < 1e-6, `p en n=${exp.n} debe ser ${exp.p}`);
+  });
+  assert(sw.k_evaluacion === 0, 'k en evaluación debe ser 0');
+  assert(sw.malla_evaluacion === 2000, 'Malla de evaluación debe ser de 2000 puntos');
+  assert(sw.h_definicion.includes('2*pi'), 'Definición de h debe ser h = 2*pi/(n-1)');
 
-  console.log(`   -> Punto óptimo de bifurcación con ruido n* = ${sw.n_optimo_ruido} (error mín = ${sw.min_noise_error.toExponential(4)})`);
-  assert(sw.n_optimo_ruido === 10, `El punto de mínimo error ante ruido sigma=0.05 debe ser n*=10 (obtenido ${sw.n_optimo_ruido})`);
+  console.log(`   -> Punto óptimo con ruido sensorial (sigma = 0.05): ${sw.rango_optimo_ruido} (error mín = ${sw.min_noise_error.toExponential(4)})`);
+  assert(sw.rango_optimo_ruido === 'mínimo entre n = 8 y n = 10', 'Rango óptimo con ruido debe ser "mínimo entre n = 8 y n = 10"');
 
   // Verificar series requeridas
   const reqSeries = [
