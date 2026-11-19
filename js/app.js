@@ -1320,7 +1320,10 @@ function render4(r, ri) {
     if (noteEl) {
       if (isStres) {
         noteEl.style.display = 'block';
-        noteEl.innerHTML = `⚠️ <b>Nota en gráfico (Escenario Estrés):</b> Eje vertical limitado a [-2.5, 2.5] para permitir la visualización de la señal f(t) y del spline natural. Los polinomios globales (Lagrange/Newton) oscilan con amplitudes extremas de orden ~10⁷ en los bordes debido al mal condicionamiento de base global (Λ₄₀ ≈ 2.41×10⁹) ante ruido sensorial en nodos equiespaciados.`;
+        const nTot = ri.subexp_lebesgue ? ri.subexp_lebesgue.n_total : (ri.nodos_usados.length + ri.puntos_ocultos.length);
+        const lebVal = ri.subexp_lebesgue ? sci(ri.subexp_lebesgue.lebesgue_equi) : '—';
+        const ampStr = sci(maxPolyY);
+        noteEl.innerHTML = `⚠️ <b>Nota en gráfico (Escenario Estrés):</b> Eje vertical limitado a [-2.5, 2.5] para permitir la visualización de la señal f(t) y del spline natural. Los polinomios globales (Lagrange/Newton) oscilan con amplitud máxima medida de ${ampStr} en los bordes debido al mal condicionamiento de base global (Λ_${nTot} ≈ ${lebVal}) ante ruido sensorial (σ = ${ri.sigma}) en nodos equiespaciados.`;
       } else {
         noteEl.style.display = 'none';
         noteEl.innerHTML = '';
@@ -1454,27 +1457,53 @@ function render4(r, ri) {
       const isEstr = scenActivo === 'ESTRES' || scenActivo === 'E';
       const isMal = scenActivo === 'MAL_CONDICIONADO' || scenActivo === 'MC';
 
+      const nTotLive = sl ? sl.n_total : (ri.nodos_usados.length + ri.puntos_ocultos.length);
+      const nUsLive = ri.nodos_usados.length;
+      const nOcLive = ri.puntos_ocultos.length;
+      const distLive = ri.distrib === 'cheb' ? 'Chebyshev' : 'Equiespaciada';
+      const sigLive = ri.sigma > 0 ? `σ = ${ri.sigma} (sem. ${ri.seed || 2026})` : (isMal ? 'σ = 0 (ε = 10⁻⁴)' : 'σ = 0');
+      const lebLive = sl ? `Λ_${nTotLive} ≈ ${sci(sl.lebesgue_equi)} (Cheb: ${fmt(sl.lebesgue_cheb, 2)})` : '—';
+      const errSplLive = ri.eval_spline ? sci(ri.eval_spline.error_maximo) : '—';
+      const errLagLive = ri.eval_lagrange ? sci(ri.eval_lagrange.error_maximo) : '—';
+      const ampLive = sl ? `${sci(sl.amplificacion_medida)}×` : '—';
+
       const rowsEsc = [
         [
           (isNorm ? '<b>● NORMAL (Activo)</b>' : 'NORMAL'),
-          '12 (9 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0',
-          'Λ₁₂ ≈ 42.6 (Λ_usados ≈ 13.9)', '5.81×10⁻³', '1.46×10⁻³', '1.0× (Sin ruido)',
+          (isNorm ? `${nTotLive} (${nUsLive} usados / ${nOcLive} ocultos)` : '12 (9 usados / 3 ocultos)'),
+          (isNorm ? distLive : 'Equiespaciada'),
+          (isNorm ? sigLive : 'σ = 0'),
+          (isNorm ? lebLive : 'Λ₁₂ ≈ 42.6 (Λ_usados ≈ 13.9)'),
+          (isNorm ? errSplLive : '5.81×10⁻³'),
+          (isNorm ? errLagLive : '1.46×10⁻³'),
+          (isNorm ? (sl ? ampLive : '1.0× (Sin ruido)') : '1.0× (Sin ruido)'),
           'Polinomio más preciso por analiticidad de sin(t); ambos estables'
         ],
         [
           (isEstr ? '<b>● ESTRÉS (Activo)</b>' : 'ESTRÉS'),
-          '40 (37 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0.05 (sem. 2026)',
-          'Λ₄₀ ≈ 2.41×10⁹ (Cheb: 3.47)', '0.141 (~3σ)', '1.52×10⁷', '~10⁸× (Catastrófica)',
+          (isEstr ? `${nTotLive} (${nUsLive} usados / ${nOcLive} ocultos)` : '40 (37 usados / 3 ocultos)'),
+          (isEstr ? distLive : 'Equiespaciada'),
+          (isEstr ? sigLive : 'σ = 0.05 (sem. 2026)'),
+          (isEstr ? lebLive : 'Λ₄₀ ≈ 2.41×10⁹ (Cheb: 3.47)'),
+          (isEstr ? errSplLive : '0.141 (~3σ)'),
+          (isEstr ? errLagLive : '1.52×10⁷'),
+          (isEstr ? (sl ? ampLive : '~10⁸× (Catastrófica)') : '~10⁸× (Catastrófica)'),
           'Divergencia en bordes por explosión de Λ_N; Spline no amplifica ruido'
         ],
         [
           (isMal ? '<b>● MAL CONDICIONADO (Activo)</b>' : 'MAL CONDICIONADO'),
-          '21 (18 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0 (ε = 10⁻⁴)',
-          'Λ₂₁ ≈ 1.94×10⁴ (Cheb: 2.87)', '6.25×10⁻⁴', '4.41×10⁻⁴ (nominal)', (sl ? fmt(sl.amplificacion_medida, 1) + '×' : '2450×'),
+          (isMal ? `${nTotLive} (${nUsLive} usados / ${nOcLive} ocultos)` : '21 (18 usados / 3 ocultos)'),
+          (isMal ? distLive : 'Equiespaciada'),
+          (isMal ? sigLive : 'σ = 0 (ε = 10⁻⁴)'),
+          (isMal ? lebLive : 'Λ₂₁ ≈ 1.94×10⁴ (Cheb: 2.87)'),
+          (isMal ? errSplLive : '6.25×10⁻⁴'),
+          (isMal ? errLagLive : '4.41×10⁻⁴ (nominal)'),
+          (isMal ? (sl ? ampLive : '2450×') : '2450× (Hipersensible)'),
           'Base polinomial global hipersensible a perturbaciones; spline recomendado'
         ]
       ];
-      $('t5_escenarios').innerHTML = tbl(headersEsc, rowsEsc);
+      $('t5_escenarios').innerHTML = tbl(headersEsc, rowsEsc) +
+        `<p class="note" style="margin-top:6px"><em>Nota:</em> La fila activa se calcula dinámicamente con los parámetros y ejecuciones de la corrida actual; las demás filas muestran valores de referencia de los escenarios estándar.</p>`;
     }
   }
 

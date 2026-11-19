@@ -932,6 +932,21 @@ PRAGMA user_version = 2;
 
       // MÓDULO 4: Calibración e interpolación (Gráficos c8, c9 y c12)
       if (casoId === 4 || allSeries.some(s => s.nombre.startsWith('M4_'))) {
+        const ejSpline = ejecuciones.find(e => e.metodo && e.metodo.includes('Spline'));
+        const ejLag = ejecuciones.find(e => e.metodo && e.metodo.includes('Lagrange'));
+        const ejNew = ejecuciones.find(e => e.metodo && e.metodo.includes('Newton'));
+        const ejBis = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Bisección');
+        const ejNwtR = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Newton-Raphson');
+        const ejSec = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Secante');
+
+        const getSummary = (ej) => {
+          if (!ej || !ej.resumen || !ej.resumen.valor_json) return {};
+          try { return JSON.parse(ej.resumen.valor_json); } catch (e) { return {}; }
+        };
+        const valS = getSummary(ejSpline);
+        const valL = getSummary(ejLag);
+        const valN = getSummary(ejNew);
+
         // c8: Ajuste polinómico
         const ds8 = [];
         const sPts = getSeriesData('M4_muestras_sensores', 'muestras');
@@ -980,7 +995,14 @@ PRAGMA user_version = 2;
         if (noteEl) {
           if (isStres) {
             noteEl.style.display = 'block';
-            noteEl.innerHTML = `⚠️ <b>Nota en gráfico (Escenario Estrés):</b> Eje vertical limitado a [-2.5, 2.5] para permitir la visualización de la señal f(t) y del spline natural. Los polinomios globales (Lagrange/Newton) oscilan con amplitudes extremas de orden ~10⁷ en los bordes debido al mal condicionamiento de base global (Λ₄₀ ≈ 2.41×10⁹) ante ruido sensorial en nodos equiespaciados.`;
+            const nTot = (sNod ? sNod.pts.length : 0) + (sOcu ? sOcu.pts.length : 0);
+            let lebVal = '—';
+            if (valS.subexp_lebesgue && valS.subexp_lebesgue.lebesgue_equi != null) {
+              lebVal = sci(valS.subexp_lebesgue.lebesgue_equi);
+            }
+            const sigmaVal = valS.sigma_ruido != null ? valS.sigma_ruido : ((escenario && (escenario.tipo === 'ESTRES' || escenario.tipo === 'E')) ? 0.05 : 0);
+            const ampStr = sci(maxPolyY);
+            noteEl.innerHTML = `⚠️ <b>Nota en gráfico (Escenario Estrés):</b> Eje vertical limitado a [-2.5, 2.5] para permitir la visualización de la señal f(t) y del spline natural. Los polinomios globales (Lagrange/Newton) oscilan con amplitud máxima medida de ${ampStr} en los bordes debido al mal condicionamiento de base global (Λ_${nTot} ≈ ${lebVal}) ante ruido sensorial (σ = ${sigmaVal}) en nodos equiespaciados.`;
           } else {
             noteEl.style.display = 'none';
             noteEl.innerHTML = '';
@@ -1059,18 +1081,6 @@ PRAGMA user_version = 2;
         }
 
         // --- RENDERIZADO DE TABLAS DE MÓDULO 4 DESDE SQLITE ---
-        const ejSpline = ejecuciones.find(e => e.metodo && e.metodo.includes('Spline'));
-        const ejLag = ejecuciones.find(e => e.metodo && e.metodo.includes('Lagrange'));
-        const ejNew = ejecuciones.find(e => e.metodo && e.metodo.includes('Newton'));
-        const ejBis = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Bisección');
-        const ejNwtR = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Newton-Raphson');
-        const ejSec = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Secante');
-
-        const getSummary = (ej) => {
-          if (!ej || !ej.resumen || !ej.resumen.valor_json) return {};
-          try { return JSON.parse(ej.resumen.valor_json); } catch (e) { return {}; }
-        };
-
         // 1. Tabla t4: Coeficientes estimados
         const t4El = document.getElementById('t4');
         if (t4El && r4Val) {
@@ -1092,9 +1102,6 @@ PRAGMA user_version = 2;
         // 2. Tabla t5: Resumen de interpolación por método
         const t5El = document.getElementById('t5');
         if (t5El && (ejSpline || ejLag || ejNew)) {
-          const valS = getSummary(ejSpline);
-          const valL = getSummary(ejLag);
-          const valN = getSummary(ejNew);
           const worstStr = p => p ? `${fmt(p.x, 3)} (${sci(p.error_abs)})` : '—';
           t5El.innerHTML = tbl(['Método', 'Error Máximo', 'Error RMS', 'Peor punto x̂ (|error|)', 'Cota teórica máx'], [
             ['Lagrange', sci(valL.error_maximo), sci(valL.error_rms), worstStr(valL.peor_punto), sci(valL.cota_teorica)],
@@ -1201,36 +1208,61 @@ PRAGMA user_version = 2;
             `<p class="note" style="margin-top:6px">Umbral u = ${uVal}, t*_analítico = ${tAn != null ? fmt(tAn, 6) : '—'} (arcsin(u)). Datos leídos de SQLite (familia RAICES).</p>`;
         }
 
-        // 6. Tabla t5_escenarios: Comparativa multidimensional
+        // 6. Tabla t5_escenarios: Visualización del escenario abierto desde SQLite
         const t5escEl = document.getElementById('t5_escenarios');
         if (t5escEl) {
-          const scenActivo = escenario ? escenario.tipo : 'NORMAL';
-          const headersEsc = ['Escenario', 'Nodos (Usados/Ocultos)', 'Distribución', 'Ruido σ (Semilla)', 'Lebesgue Λ_N', 'Error Máx Spline', 'Error Máx Polinomio', 'Amplificación', 'Diagnóstico'];
-          const isNorm = scenActivo === 'NORMAL' || scenActivo === 'N';
-          const isEstr = scenActivo === 'ESTRES' || scenActivo === 'E';
-          const isMal = scenActivo === 'MAL_CONDICIONADO' || scenActivo === 'MC';
+          const scenNombre = escenario ? (escenario.tipo === 'ESTRES' ? 'ESTRÉS' : escenario.tipo.replace('_', ' ')) : 'NORMAL';
+          const nNodosUsados = sNod ? sNod.pts.length : (valS.subexp_lebesgue?.n_usados || '—');
+          const nOcultos = sOcu ? sOcu.pts.length : 3;
+          const nTotal = (typeof nNodosUsados === 'number' && typeof nOcultos === 'number') ? (nNodosUsados + nOcultos) : '—';
+          const distribucion = (valS.distribucion === 'cheb') ? 'Chebyshev' : 'Equiespaciada';
+          const sigma = (valS.sigma_ruido != null)
+            ? (valS.sigma_ruido > 0 ? `σ = ${valS.sigma_ruido} (sem. ${valS.semilla || 2026})` : 'σ = 0')
+            : (escenario && (escenario.tipo === 'ESTRES' || escenario.tipo === 'E') ? 'σ = 0.05 (sem. 2026)' : 'σ = 0');
+          
+          let lebesgue = '—';
+          if (valS.subexp_lebesgue && valS.subexp_lebesgue.lebesgue_equi != null) {
+            lebesgue = `Λ_${nTotal} ≈ ${sci(valS.subexp_lebesgue.lebesgue_equi)}`;
+            if (valS.subexp_lebesgue.lebesgue_cheb != null) {
+              lebesgue += ` (Cheb: ${fmt(valS.subexp_lebesgue.lebesgue_cheb, 2)})`;
+            }
+          }
 
+          const errSpline = (valS.error_maximo != null) ? sci(valS.error_maximo) : '—';
+          const errPoly = (valL.error_maximo != null) ? sci(valL.error_maximo) : '—';
+          
+          let amplificacion = '—';
+          if (valS.subexp_lebesgue && valS.subexp_lebesgue.amplificacion_medida != null) {
+            amplificacion = `${sci(valS.subexp_lebesgue.amplificacion_medida)}×`;
+          } else if (valL.error_maximo != null && valS.error_maximo != null && valS.error_maximo > 0) {
+            amplificacion = `${(valL.error_maximo / valS.error_maximo).toExponential(1)}×`;
+          }
+
+          let diagnostico = '';
+          if (escenario && (escenario.tipo === 'ESTRES' || escenario.tipo === 'E')) {
+            diagnostico = 'Divergencia en bordes por explosión de Λ_N ante ruido; Spline no amplifica ruido (error ~3σ).';
+          } else if (escenario && (escenario.tipo === 'MAL_CONDICIONADO' || escenario.tipo === 'MC')) {
+            diagnostico = 'Base polinomial global hipersensible a perturbaciones; spline cúbico recomendado.';
+          } else {
+            diagnostico = 'Polinomio más preciso por analiticidad de f(t); spline natural estable con convergencia O(h⁴).';
+          }
+
+          const headersEsc = ['Escenario', 'Nodos (Usados/Ocultos)', 'Distribución', 'Ruido σ (Semilla)', 'Lebesgue Λ_N', 'Error Máx Spline', 'Error Máx Polinomio', 'Amplificación', 'Diagnóstico'];
           const rowsEsc = [
             [
-              (isNorm ? '<b>● NORMAL (Cargado)</b>' : 'NORMAL'),
-              '12 (9 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0',
-              'Λ₁₂ ≈ 42.6 (Λ_usados ≈ 13.9)', '5.81×10⁻³', '1.46×10⁻³', '1.0× (Sin ruido)',
-              'Polinomio más preciso por analiticidad de sin(t); ambos estables'
-            ],
-            [
-              (isEstr ? '<b>● ESTRÉS (Cargado)</b>' : 'ESTRÉS'),
-              '40 (37 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0.05 (sem. 2026)',
-              'Λ₄₀ ≈ 2.41×10⁹ (Cheb: 3.47)', '0.141 (~3σ)', '1.52×10⁷', '~10⁸× (Catastrófica)',
-              'Divergencia en bordes por explosión de Λ_N; Spline no amplifica ruido'
-            ],
-            [
-              (isMal ? '<b>● MAL CONDICIONADO (Cargado)</b>' : 'MAL CONDICIONADO'),
-              '21 (18 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0 (ε = 10⁻⁴)',
-              'Λ₂₁ ≈ 1.94×10⁴ (Cheb: 2.87)', '6.25×10⁻⁴', '4.41×10⁻⁴ (nominal)', '2450× (Hipersensible)',
-              'Base polinomial global hipersensible a perturbaciones; spline recomendado'
+              `<b>● ${scenNombre} (Cargado) · Simulación #${simulacion.id}</b>`,
+              `${nTotal} (${nNodosUsados} usados / ${nOcultos} ocultos)`,
+              distribucion,
+              sigma,
+              lebesgue,
+              errSpline,
+              errPoly,
+              amplificacion,
+              diagnostico
             ]
           ];
-          t5escEl.innerHTML = tbl(headersEsc, rowsEsc);
+          t5escEl.innerHTML = tbl(headersEsc, rowsEsc) +
+            `<p class="note" style="margin-top:6px"><em>Nota:</em> En modo consulta se visualizan exclusivamente las métricas del escenario abierto recuperadas de SQLite (Simulación #${simulacion.id}). Los demás escenarios no se recalculan ni se muestran con datos fijos.</p>`;
         }
       }
 

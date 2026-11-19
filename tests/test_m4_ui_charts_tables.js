@@ -176,7 +176,7 @@ async function runTestM4UI() {
   console.log('\n2. Probando Modo Consulta (Abrir desde SQLite) en los tres escenarios...');
 
   // Generar y persistir simulaciones para Estrés (caso 4, esc 11) y Mal Condicionado (caso 4, esc 12)
-  console.log('   -> Guardando simulaciones en BD para Estrés (#11) y Mal Condicionado (#12)...');
+  console.log('   -> Guardando simulaciones en BD para Estrés (escenario #11) y Mal Condicionado (escenario #12)...');
   
   // Guardar simulación Estrés
   const pE = { m1: PRE.E.m1, m2: PRE.E.m2, m3: PRE.E.m3, m4: PRE.E.m4, mi: PRE.E.mi };
@@ -186,7 +186,7 @@ async function runTestM4UI() {
   const rE_r4 = mod4(pE.m4);
   const rE_ri = modInterp(pE.mi);
   const simE_data = Mapper.buildAllExecutions(
-    { r1: rE_r1, r2: rE_r2, r3: rE_r3, r4: rE_r4, ri: rE_ri, s1Rows: [], s2Rows: [], s3Rows: [], s4Rows: [] },
+    { r1: rE_r1, r2: rE_r2, r3: rE_r3, r4: rE_r4, ri: rE_ri, s1Rows: [], s2Rows: [], s3Rows: [], s4Rows: rE_r4.rows },
     pE, 'E'
   );
   const resE = await DB.saveSimulation({
@@ -205,7 +205,7 @@ async function runTestM4UI() {
   const rMC_r4 = mod4(pMC.m4);
   const rMC_ri = modInterp(pMC.mi);
   const simMC_data = Mapper.buildAllExecutions(
-    { r1: {}, r2: {}, r3: {}, r4: rMC_r4, ri: rMC_ri, s1Rows: [], s2Rows: [], s3Rows: [], s4Rows: [] },
+    { r1: {}, r2: {}, r3: {}, r4: rMC_r4, ri: rMC_ri, s1Rows: [], s2Rows: [], s3Rows: [], s4Rows: rMC_r4.rows },
     pMC, 'MC'
   );
   const resMC = await DB.saveSimulation({
@@ -230,6 +230,7 @@ async function runTestM4UI() {
   for (const st of simTests) {
     console.log(`\n   --- Verificando Consulta de Simulación #${st.simId} (${st.nombre}) ---`);
     dom.recalcCalled = false;
+    delete chartsDrawn['c8'];
     delete chartsDrawn['c9'];
     delete chartsDrawn['c12'];
     delete chartsDrawn['c13'];
@@ -238,6 +239,11 @@ async function runTestM4UI() {
     assert(loaded !== null, `Simulación #${st.simId} debe cargarse con éxito`);
     assert(dom.recalcCalled !== true, 'ABRIR NO debe ejecutar recalcAll (cálculo reactivo deshabilitado)');
     assert(DB.getQueryMode() === true, 'Modo consulta debe estar activo');
+
+    // Gráfico c8: Ajuste polinómico y muestras
+    assert(chartsDrawn['c8'], `c8 debe redibujarse desde serie_grafico para #${st.simId}`);
+    assert(chartsDrawn['c8'].datasets.length >= 2, 'c8 debe incluir datasets de muestras y ajuste');
+    console.log(`      ✔ c8 redibujado desde serie_grafico (ajuste polinómico y muestras).`);
 
     // Gráfico 1: c9 desde serie_grafico
     assert(chartsDrawn['c9'], `c9 debe haberse redibujado desde serie_grafico para #${st.simId}`);

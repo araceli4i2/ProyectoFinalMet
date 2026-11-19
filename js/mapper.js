@@ -498,7 +498,7 @@ const Mapper = (() => {
     // --- MÓDULO 4: Sensores e interpolación (caso_id = 4) ---
     if (r4) {
       // 4 solucionadores lineales del ajuste por mínimos cuadrados
-      const rows4 = results.s4Rows || r4.rows || [];
+      const rows4 = (results.s4Rows && results.s4Rows.length > 0) ? results.s4Rows : (r4.rows || []);
       rows4.forEach((q, idx) => {
         const estDb = toDbEstado(q.estado, true);
         const sers = [
