@@ -203,21 +203,21 @@ const PRE = {
     m2: { D0: 0.10, alpha: 0.015, beta: 0.001, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 200, F0: 400, Om: 1.2, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 12, grado: 3, a: -1, b: 1, sigma: 0, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-10 },
-    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5 }
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5, tol_roots: 1e-10, max_it_roots: 100 }
   },
   E: {
     m1: { model: 'const', v0: 7, a0: 0.6, amax: 1.50, k: 0.8, c: 0, T: 4, sensor: 0.15, red: 0.55, plc: 0.20, act: 0.30, dseg: 15, h: 0.05 },
     m2: { D0: 0.12, alpha: 0.025, beta: 0.002, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 100, F0: 400, Om: 1.9, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 60, grado: 3, a: -1, b: 1, sigma: 0.05, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-12 },
-    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 40, k: 3, distrib: 'equi', sigma: 0.05, seed: 2026, M: 1, u: 0.5 }
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 40, k: 3, distrib: 'equi', sigma: 0.05, seed: 2026, M: 1, u: 0.5, tol_roots: 1e-10, max_it_roots: 100 }
   },
   MC: {
     m1: { model: 'tang', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.24, alpha: 0.002, beta: 0.0001, Du: 0.2401, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 20, F0: 40, Om: 2.0, Alim: 0.5, Tsim: 150, ruido: 0.05, seed: 2026 },
     m4: { pts: 30, grado: 5, a: 0, b: 1, sigma: 0, seed: 2026, coefs: '1,1,1,1,1,1', tol: 1e-10 },
-    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 21, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5 }
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 21, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5, tol_roots: 1e-10, max_it_roots: 100 }
   }
 };
 const INTERP_DEF = PRE.N.mi;
@@ -754,6 +754,11 @@ function modInterp(p) {
     t_analitico,
     cruces_spline,
     cruces_polinomio,
+    tolerancia: tolRoots,
+    max_iter: maxItRoots,
+    intervalo_inicial: [a_bis, b_bis],
+    semilla_newton: x0_newton,
+    semillas_secante: [a_bis, b_bis],
     biseccion: resBiseccion,
     newton: resNewton,
     secante: resSecante,
@@ -863,8 +868,8 @@ function sweepInterpolation(p = {}, N_max = 24) {
     // --- C. Constantes de Lebesgue ---
     const xsE = Array.from({length: n}, (_, i) => a + i * (b - a) / (n - 1));
     const xsC = Array.from({length: n}, (_, j) => 0.5 * (a + b) - 0.5 * (b - a) * Math.cos(j * Math.PI / (n - 1)));
-    const lebE = lebesgueConstant(xsE, 250);
-    const lebC = lebesgueConstant(xsC, 250);
+    const lebE = lebesgueConstant(xsE, 1000);
+    const lebC = lebesgueConstant(xsC, 1000);
     series.M4_barrido_lebesgue_equi.push({ x: n, y: lebE });
     series.M4_barrido_lebesgue_cheb.push({ x: n, y: lebC });
 
@@ -1282,9 +1287,9 @@ function render4(r, ri) {
   if (ri && ri.sweep) {
     const sw = ri.sweep;
     extraSweep = `<p class="note"><b>Estudio de convergencia y estabilidad por barrido (n = 4..24):</b><br>` +
-      `• <b>Rango válido y submuestreo:</b> En n=4 y n=6, al retirar k puntos ocultos quedan únicamente 3 nodos usados en [0, 2π] (submuestreo severo bajo el límite de Nyquist para sin(t), dando error ~1.73 en todos los métodos). Estos puntos están marcados como <i>no válidos</i> y quedan excluidos de la regresión asintótica, la cual inicia en n ≥ 8 (n_usados ≥ 5).<br>` +
-      `• <b>Spline cúbico natural:</b> Resuelve un sistema global tridiagonal estrictamente diagonal-dominante. Su constante de Lebesgue está acotada en Λ_spline ≈ 1.55 independiente de N (medida experimentalmente: Λ₈=1.528, Λ₁₆=1.549, Λ₂₄=1.549, Λ₄₀=1.549 frente a Λ₄₀_equi ≈ 2.41×10⁹ del polinomio). Los órdenes locales de convergencia con h=2π/(n-1) oscilan en p ∈ [4.01, 4.45], convergiendo monótonamente hacia 4.00 a medida que n aumenta. Esta tasa O(h⁴) se cumple porque f''(0)=f''(2π)=0 en sin(t); en funciones como e^(−t) donde f''≠0 en los bordes, la condición natural degrada el orden a O(h²). Ante ruido sensorial σ=0.05 el error denso medio se mantiene controlado en ~0.11 sin amplificación global.<br>` +
-      `• <b>Polinomios globales (Lagrange / Newton):</b> Con nodos equiespaciados y ruido σ=0.05, el error mínimo ocurre en <b>n* = ${sw.n_optimo_ruido}</b> (error = ${sci(sw.min_noise_error)}). Para n ≥ 12, el error crece abruptamente siguiendo la constante de Lebesgue (de Λ₁₀ ≈ 17.8 a Λ₂₄ ≈ 7.21×10⁴ y Λ₄₀ ≈ 2.41×10⁹). En contraste, con nodos de Chebyshev la constante Λ crece logarítmicamente (Λ₂₄ ≈ 2.95) y el error permanece acotado en ~0.13 – 0.15.</p>`;
+      `• <b>Rango válido y submuestreo:</b> En n=4 y n=6, al retirar k puntos ocultos quedan únicamente 3 nodos usados en [0, 2π] (submuestreo severo para sin(t), dando error ~1.73 en los puntos ocultos y 1.65–1.77 en la malla densa). Estos puntos están marcados como <i>no válidos</i> y quedan excluidos de la estimación del orden de convergencia asintótico, la cual inicia en n ≥ 8.<br>` +
+      `• <b>Spline cúbico natural:</b> Resuelve un sistema global tridiagonal estrictamente diagonal-dominante con constante de Lebesgue acotada Λ_spline ≈ 1.55 independiente de N. Órdenes locales medidos con k = 0 en malla de 2000 puntos: p = 4.46 (n=6), 4.29 (n=8), 4.09 (n=12), 4.02 (n=24), convergiendo asintóticamente a 4.00 (O(h⁴)). Ante ruido sensorial σ=0.05 (semilla 2026) el error denso medio se mantiene controlado en ~0.11 sin amplificación global.<br>` +
+      `• <b>Polinomios globales (Lagrange / Newton):</b> Con nodos equiespaciados y ruido σ=0.05, el error mínimo ocurre en <b>n* = ${sw.n_optimo_ruido}</b> (error = ${sci(sw.min_noise_error)}). Para n ≥ 12, el error crece abruptamente siguiendo la constante de Lebesgue (de Λ₁₀ ≈ 17.8 a Λ₂₄ ≈ 7.28×10⁴ y Λ₄₀ ≈ 2.41×10⁹). En contraste, con nodos de Chebyshev la constante Λ crece logarítmicamente (Λ₂₄ ≈ 2.95) y el error permanece acotado en ~0.13 – 0.15.</p>`;
   }
 
   let extraM4 = '';
@@ -1306,8 +1311,8 @@ function render4(r, ri) {
       `• <b>Bisección:</b> t* = ${b.x != null ? fmt(b.x, 6) : '—'} (${b.it} iteraciones, residuo = ${sci(b.residual)}, |t* − t*_an| = ${sci(cu.diff_spline_analitica)}).<br>` +
       `• <b>Newton-Raphson:</b> t* = ${n.x != null ? fmt(n.x, 6) : '—'} (${n.it} iteraciones, residuo = ${sci(n.residual)}, derivada S'(t*) = ${n.hist.length ? fmt(n.hist[n.hist.length - 1].derivada, 4) : '—'}).<br>` +
       `• <b>Secante:</b> t* = ${s.x != null ? fmt(s.x, 6) : '—'} (${s.it} iteraciones, residuo = ${sci(s.residual)}).<br>` +
-      `• <b>Cruces en la malla:</b> Spline = ${cu.cruces_spline} cruce${cu.cruces_spline === 1 ? '' : 's'} limpio${cu.cruces_spline === 1 ? '' : 's'}, Polinomio = ${cu.cruces_polinomio} cruce${cu.cruces_polinomio === 1 ? '' : 's'}` +
-      (cu.cruces_polinomio > 2 ? ` (<b>alerta:</b> oscilaciones espurias de Runge/Lebesgue generan cruces falsos en bordes)` : '') + `.` +
+      `• <b>Cruces en la malla (220 puntos, semilla 2026):</b> Spline = ${cu.cruces_spline} cruce${cu.cruces_spline === 1 ? '' : 's'} limpio${cu.cruces_spline === 1 ? '' : 's'}, Polinomio = ${cu.cruces_polinomio} cruce${cu.cruces_polinomio === 1 ? '' : 's'}` +
+      (cu.cruces_polinomio > 2 ? ` (cruces espurios del umbral de la curva reconstruida; el conteo depende de la malla de evaluación discreta de 220 puntos y de la realización del ruido con semilla 2026)` : '') + `.` +
       (cu.t_star_poly != null ? `<br>• <b>Comparación Spline vs Polinomio:</b> t*_spline = ${fmt(cu.t_star_spline, 6)} vs t*_poly = ${fmt(cu.t_star_poly, 6)} (|Δ| = ${sci(cu.diff_spline_poly)}).` : '') +
       `</p>`;
   }

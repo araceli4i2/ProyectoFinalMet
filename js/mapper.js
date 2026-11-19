@@ -707,7 +707,7 @@ const Mapper = (() => {
         concNumNewton += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
       }
       if (sw) {
-        concNumNewton += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en n*=${sw.n_optimo_ruido} y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.21e4).`;
+        concNumNewton += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en n*=${sw.n_optimo_ruido} y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.28e4).`;
       }
 
       const newtonIters = [];
@@ -817,6 +817,9 @@ const Mapper = (() => {
                 t_star: sanitizeNumber(bRes.x),
                 t_analitico: tAn,
                 umbral_u: uVal,
+                tolerancia: cu.tolerancia || 1e-10,
+                max_iter: cu.max_iter || 100,
+                intervalo_inicial: (cu.intervalo_inicial || [0, Math.PI / 2]).map(sanitizeNumber),
                 iteraciones: bRes.it,
                 residual: sanitizeNumber(bRes.residual),
                 error_vs_analitica: sanitizeNumber(errAn),
@@ -829,10 +832,11 @@ const Mapper = (() => {
                 residual: sanitizeNumber(bRes.residual),
                 error_abs: sanitizeNumber(errAn),
                 error_rel: safeRelError(errAn, tAn),
-                tolerancia: 1e-10
+                tolerancia: cu.tolerancia || 1e-10,
+                max_iter: cu.max_iter || 100
               }),
-              conclusion_numerica: `Convergencia lineal de Bisección sobre spline natural S(t) = ${uVal}: t* = ${bRes.x != null ? Number(bRes.x).toFixed(6) : '—'} en ${bRes.it} iteraciones (residual ${bRes.residual != null ? Number(bRes.residual).toExponential(2) : '—'}, |t* - t*_an| = ${errAn != null ? Number(errAn).toExponential(3) : '—'}). Spline presenta ${cu.cruces_spline} cruces limpios frente a ${cu.cruces_polinomio} oscilaciones del polinomio en la malla.`,
-              conclusion_problema: `Detección de cruce de umbral de seguridad u = ${uVal} en señal sensorial interpolada.`
+              conclusion_numerica: `Convergencia lineal de Bisección sobre spline natural S(t) = ${uVal}: t* = ${bRes.x != null ? Number(bRes.x).toFixed(6) : '—'} en ${bRes.it} iteraciones (residual ${bRes.residual != null ? Number(bRes.residual).toExponential(2) : '—'}, |t* - t*_an| = ${errAn != null ? Number(errAn).toExponential(3) : '—'}). Spline presenta ${cu.cruces_spline} cruces limpios frente a ${cu.cruces_polinomio} cruces en el polinomio (cruces espurios del umbral de la curva reconstruida; el conteo depende de la malla discreta de 220 puntos y de la realización del ruido con semilla 2026).`,
+              conclusion_problema: `Detección de cruce de umbral u = ${uVal} en señal sensorial interpolada.`
             },
             series: [
               { nombre: 'M4_cruce_umbral', datos_json: JSON.stringify((bRes.hist || []).map(it => ({ x: it.numero, y: sanitizeNumber(it.t), residual: sanitizeNumber(it.residual), error_abs: sanitizeNumber(it.error_abs) }))) }
@@ -868,6 +872,9 @@ const Mapper = (() => {
                 t_star: sanitizeNumber(nRes.x),
                 t_analitico: tAn,
                 umbral_u: uVal,
+                tolerancia: cu.tolerancia || 1e-10,
+                max_iter: cu.max_iter || 100,
+                semilla_x0: sanitizeNumber(cu.semilla_newton),
                 iteraciones: nRes.it,
                 residual: sanitizeNumber(nRes.residual),
                 error_vs_analitica: sanitizeNumber(errAn),
@@ -880,10 +887,11 @@ const Mapper = (() => {
                 residual: sanitizeNumber(nRes.residual),
                 error_abs: sanitizeNumber(errAn),
                 error_rel: safeRelError(errAn, tAn),
-                tolerancia: 1e-10
+                tolerancia: cu.tolerancia || 1e-10,
+                max_iter: cu.max_iter || 100
               }),
               conclusion_numerica: `Convergencia cuadrática de Newton-Raphson con derivada analítica del spline S'(t): t* = ${nRes.x != null ? Number(nRes.x).toFixed(6) : '—'} en ${nRes.it} iteraciones (residual ${nRes.residual != null ? Number(nRes.residual).toExponential(2) : '—'}, |t* - t*_an| = ${errAn != null ? Number(errAn).toExponential(3) : '—'}). Derivada analítica por tramos evita aproximaciones numéricas finitas.`,
-              conclusion_problema: `Detección de cruce de umbral de seguridad u = ${uVal} en señal sensorial interpolada.`
+              conclusion_problema: `Detección de cruce de umbral u = ${uVal} en señal sensorial interpolada.`
             },
             series: [
               { nombre: 'M4_cruce_umbral', datos_json: JSON.stringify((nRes.hist || []).map(it => ({ x: it.numero, y: sanitizeNumber(it.t), residual: sanitizeNumber(it.residual), error_abs: sanitizeNumber(it.error_abs) }))) }
@@ -919,6 +927,9 @@ const Mapper = (() => {
                 t_star: sanitizeNumber(sRes.x),
                 t_analitico: tAn,
                 umbral_u: uVal,
+                tolerancia: cu.tolerancia || 1e-10,
+                max_iter: cu.max_iter || 100,
+                semillas: (cu.semillas_secante || [0, Math.PI / 2]).map(sanitizeNumber),
                 iteraciones: sRes.it,
                 residual: sanitizeNumber(sRes.residual),
                 error_vs_analitica: sanitizeNumber(errAn),
@@ -931,10 +942,11 @@ const Mapper = (() => {
                 residual: sanitizeNumber(sRes.residual),
                 error_abs: sanitizeNumber(errAn),
                 error_rel: safeRelError(errAn, tAn),
-                tolerancia: 1e-10
+                tolerancia: cu.tolerancia || 1e-10,
+                max_iter: cu.max_iter || 100
               }),
               conclusion_numerica: `Convergencia superlineal (orden ≈ 1.618) de Secante con dos semillas: t* = ${sRes.x != null ? Number(sRes.x).toFixed(6) : '—'} en ${sRes.it} iteraciones (residual ${sRes.residual != null ? Number(sRes.residual).toExponential(2) : '—'}, |t* - t*_an| = ${errAn != null ? Number(errAn).toExponential(3) : '—'}). No requiere cálculo de derivada.`,
-              conclusion_problema: `Detección de cruce de umbral de seguridad u = ${uVal} en señal sensorial interpolada.`
+              conclusion_problema: `Detección de cruce de umbral u = ${uVal} en señal sensorial interpolada.`
             },
             series: [
               { nombre: 'M4_cruce_umbral', datos_json: JSON.stringify((sRes.hist || []).map(it => ({ x: it.numero, y: sanitizeNumber(it.t), residual: sanitizeNumber(it.residual), error_abs: sanitizeNumber(it.error_abs) }))) }
