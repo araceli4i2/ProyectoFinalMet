@@ -541,6 +541,15 @@ Para evitar restricciones de seguridad CORS al cargar archivos locales:
   # O mediante la extensión Live Server de VS Code
   ```
 
+### Ejecución de Pruebas Automatizadas
+
+El proyecto incluye un ejecutor universal de pruebas autónomo (sin dependencias externas) que corre la suite completa (17 pruebas automatizadas en `tests/` y la auditoría del ciclo de persistencia en `tools/`):
+
+```bash
+node tests/run_all.js
+```
+El ejecutor reporta el estado `PASS` o `FAIL` con código de salida para cada prueba, totaliza los resultados y devuelve código de salida `0` si todas pasan, o distinto de `0` ante cualquier fallo.
+
 ---
 
 ## ⚠️ Descargo de Responsabilidad y Aviso Académico

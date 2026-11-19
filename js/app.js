@@ -1451,59 +1451,108 @@ function render4(r, ri) {
     // Tabla 4: Comparativa de escenarios
     if ($('t5_escenarios')) {
       const scenActivo = ri.escenario || (ri.sigma > 0 ? 'ESTRES' : (ri.subexp_lebesgue && ri.subexp_lebesgue.n_total === 21 ? 'MAL_CONDICIONADO' : 'NORMAL'));
-      const sl = ri.subexp_lebesgue;
-      const headersEsc = ['Escenario', 'Nodos (Usados/Ocultos)', 'Distribución', 'Ruido σ (Semilla)', 'Lebesgue Λ_N', 'Error Máx Spline', 'Error Máx Polinomio', 'Amplificación', 'Diagnóstico'];
+      const headersEsc = [
+        'Escenario',
+        'Nodos (Usados/Ocultos)',
+        'Distribución',
+        'Ruido σ (Semilla)',
+        'Lebesgue Λ_N',
+        'Error Máx Spline',
+        'Error Máx Polinomio',
+        'Cociente de errores polinomio/spline',
+        'Amplificación de una perturbación (medida)',
+        'Diagnóstico'
+      ];
+
       const isNorm = scenActivo === 'NORMAL' || scenActivo === 'N';
       const isEstr = scenActivo === 'ESTRES' || scenActivo === 'E';
       const isMal = scenActivo === 'MAL_CONDICIONADO' || scenActivo === 'MC';
 
-      const nTotLive = sl ? sl.n_total : (ri.nodos_usados.length + ri.puntos_ocultos.length);
-      const nUsLive = ri.nodos_usados.length;
-      const nOcLive = ri.puntos_ocultos.length;
-      const distLive = ri.distrib === 'cheb' ? 'Chebyshev' : 'Equiespaciada';
-      const sigLive = ri.sigma > 0 ? `σ = ${ri.sigma} (sem. ${ri.seed || 2026})` : (isMal ? 'σ = 0 (ε = 10⁻⁴)' : 'σ = 0');
-      const lebLive = sl ? `Λ_${nTotLive} ≈ ${sci(sl.lebesgue_equi)} (Cheb: ${fmt(sl.lebesgue_cheb, 2)})` : '—';
-      const errSplLive = ri.eval_spline ? sci(ri.eval_spline.error_maximo) : '—';
-      const errLagLive = ri.eval_lagrange ? sci(ri.eval_lagrange.error_maximo) : '—';
-      const ampLive = sl ? `${sci(sl.amplificacion_medida)}×` : '—';
+      const rNorm = isNorm ? ri : (typeof modInterp === 'function' ? modInterp(PRE.N.mi) : null);
+      const rEstr = isEstr ? ri : (typeof modInterp === 'function' ? modInterp(PRE.E.mi) : null);
+      const rMal = isMal ? ri : (typeof modInterp === 'function' ? modInterp(PRE.MC.mi) : null);
+
+      function formatEscenarioData(scenNombre, isAct, rData) {
+        if (!rData) return [`${scenNombre} (calculado ahora)`, '—', '—', '—', '—', '—', '—', '—', '—', '—'];
+        const sl = rData.subexp_lebesgue;
+        const nUs = rData.nodos_usados ? rData.nodos_usados.length : (rData.xs ? rData.xs.length : null);
+        const nOc = rData.puntos_ocultos ? rData.puntos_ocultos.length : null;
+        const nTot = (typeof nUs === 'number' && typeof nOc === 'number') ? (nUs + nOc) : (sl?.n_total != null ? sl.n_total : '—');
+        const nodosStr = (typeof nUs === 'number' && typeof nOc === 'number') ? `${nTot} (${nUs} usados / ${nOc} ocultos)` : (typeof nUs === 'number' ? `${nUs} usados` : '—');
+        const distStr = rData.distrib === 'cheb' ? 'Chebyshev' : (rData.distrib === 'equi' ? 'Equiespaciada' : '—');
+        const sigma = rData.sigma != null ? rData.sigma : null;
+        const seed = rData.seed != null ? rData.seed : null;
+        const sigStr = (typeof sigma === 'number') ? (sigma > 0 ? `σ = ${sigma}${seed != null ? ` (sem. ${seed})` : ''}` : 'σ = 0') : '—';
+
+        let lebStr = '—';
+        if (sl && typeof sl.lebesgue_equi === 'number') {
+          lebStr = `Λ_${nTot !== '—' ? nTot : 'N'} ≈ ${sci(sl.lebesgue_equi)}`;
+          if (typeof sl.lebesgue_cheb === 'number') {
+            lebStr += ` (Cheb: ${fmt(sl.lebesgue_cheb, 2)})`;
+          }
+        }
+
+        const errSpline = (rData.eval_spline?.error_max ?? rData.eval_spline?.error_maximo ?? rData.eS);
+        const errPoly = (rData.eval_lagrange?.error_max ?? rData.eval_lagrange?.error_maximo ?? rData.eL);
+        const errSplStr = (typeof errSpline === 'number') ? sci(errSpline) : '—';
+        const errPolyStr = (typeof errPoly === 'number') ? sci(errPoly) : '—';
+
+        const cocienteStr = (typeof errPoly === 'number' && typeof errSpline === 'number' && errSpline > 0)
+          ? `${(errPoly / errSpline).toExponential(2)}×`
+          : '—';
+
+        const ampPert = (sl && typeof sl.amplificacion_medida === 'number') ? sl.amplificacion_medida : null;
+        const cotaLebEps = (sl && typeof sl.cota_lebesgue_epsilon === 'number') ? sl.cota_lebesgue_epsilon : null;
+        const errNominal = (sl && typeof sl.error_nominal_max === 'number') ? sl.error_nominal_max : null;
+
+        const ampStr = ampPert != null
+          ? `${sci(ampPert)}×` + (cotaLebEps != null ? ` (cota Λ·ε = ${sci(cotaLebEps)})` : '')
+          : '—';
+
+        // Diagnóstico generado dinámicamente desde los datos medidos
+        let cmpStr = '';
+        const nStr = nTot !== '—' ? nTot : (typeof nUs === 'number' ? nUs : '—');
+        const kStr = typeof nOc === 'number' ? nOc : '—';
+        const sigTxt = typeof sigma === 'number' ? String(sigma) : '—';
+        if (typeof errPoly === 'number' && typeof errSpline === 'number') {
+          if (errPoly < errSpline) {
+            cmpStr = `Polinomio más preciso que spline (${sci(errPoly)} vs ${sci(errSpline)}) con n = ${nStr}, k = ${kStr}, σ = ${sigTxt}.`;
+          } else if (errSpline < errPoly) {
+            cmpStr = `Spline más preciso que polinomio (${sci(errSpline)} vs ${sci(errPoly)}) con n = ${nStr}, k = ${kStr}, σ = ${sigTxt}.`;
+          } else {
+            cmpStr = `Polinomio y spline con error idéntico (${sci(errPoly)}) con n = ${nStr}, k = ${kStr}, σ = ${sigTxt}.`;
+          }
+        }
+
+        let noiseStr = '';
+        if (typeof sigma === 'number' && sigma > 0 && typeof errSpline === 'number') {
+          const multSig = (errSpline / sigma).toFixed(2);
+          noiseStr = ` Con ruido σ = ${sigma}, error spline medido = ${multSig}·σ (${sci(errSpline)} / ${sigma}) en una sola realización de ruido${seed != null ? ` (semilla ${seed})` : ''}.`;
+        }
+
+        let pertStr = '';
+        if (ampPert != null) {
+          const cotaStr = cotaLebEps != null ? ` (cota Λ·ε = ${sci(cotaLebEps)})` : '';
+          if (errNominal != null) {
+            pertStr = ` Con datos exactos (nominal), polinomio tiene error máx ${sci(errNominal)}; ante perturbación amplifica ${sci(ampPert)}×${cotaStr}.`;
+          } else {
+            pertStr = ` Perturbación: amplificación medida = ${sci(ampPert)}×${cotaStr}.`;
+          }
+        }
+
+        const diag = (cmpStr + noiseStr + pertStr).trim() || '—';
+        const escCell = isAct ? `<b>● ${scenNombre} (calculado ahora · Activo)</b>` : `${scenNombre} (calculado ahora)`;
+        return [escCell, nodosStr, distStr, sigStr, lebStr, errSplStr, errPolyStr, cocienteStr, ampStr, diag];
+      }
 
       const rowsEsc = [
-        [
-          (isNorm ? '<b>● NORMAL (Activo)</b>' : 'NORMAL'),
-          (isNorm ? `${nTotLive} (${nUsLive} usados / ${nOcLive} ocultos)` : '12 (9 usados / 3 ocultos)'),
-          (isNorm ? distLive : 'Equiespaciada'),
-          (isNorm ? sigLive : 'σ = 0'),
-          (isNorm ? lebLive : 'Λ₁₂ ≈ 42.6 (Λ_usados ≈ 13.9)'),
-          (isNorm ? errSplLive : '5.81×10⁻³'),
-          (isNorm ? errLagLive : '1.46×10⁻³'),
-          (isNorm ? (sl ? ampLive : '1.0× (Sin ruido)') : '1.0× (Sin ruido)'),
-          'Polinomio más preciso por analiticidad de sin(t); ambos estables'
-        ],
-        [
-          (isEstr ? '<b>● ESTRÉS (Activo)</b>' : 'ESTRÉS'),
-          (isEstr ? `${nTotLive} (${nUsLive} usados / ${nOcLive} ocultos)` : '40 (37 usados / 3 ocultos)'),
-          (isEstr ? distLive : 'Equiespaciada'),
-          (isEstr ? sigLive : 'σ = 0.05 (sem. 2026)'),
-          (isEstr ? lebLive : 'Λ₄₀ ≈ 2.41×10⁹ (Cheb: 3.47)'),
-          (isEstr ? errSplLive : '0.141 (~3σ)'),
-          (isEstr ? errLagLive : '1.52×10⁷'),
-          (isEstr ? (sl ? ampLive : '~10⁸× (Catastrófica)') : '~10⁸× (Catastrófica)'),
-          'Divergencia en bordes por explosión de Λ_N; Spline no amplifica ruido'
-        ],
-        [
-          (isMal ? '<b>● MAL CONDICIONADO (Activo)</b>' : 'MAL CONDICIONADO'),
-          (isMal ? `${nTotLive} (${nUsLive} usados / ${nOcLive} ocultos)` : '21 (18 usados / 3 ocultos)'),
-          (isMal ? distLive : 'Equiespaciada'),
-          (isMal ? sigLive : 'σ = 0 (ε = 10⁻⁴)'),
-          (isMal ? lebLive : 'Λ₂₁ ≈ 1.94×10⁴ (Cheb: 2.87)'),
-          (isMal ? errSplLive : '6.25×10⁻⁴'),
-          (isMal ? errLagLive : '4.41×10⁻⁴ (nominal)'),
-          (isMal ? (sl ? ampLive : '2450×') : '2450× (Hipersensible)'),
-          'Base polinomial global hipersensible a perturbaciones; spline recomendado'
-        ]
+        formatEscenarioData('NORMAL', isNorm, rNorm),
+        formatEscenarioData('ESTRÉS', isEstr, rEstr),
+        formatEscenarioData('MAL CONDICIONADO', isMal, rMal)
       ];
+
       $('t5_escenarios').innerHTML = tbl(headersEsc, rowsEsc) +
-        `<p class="note" style="margin-top:6px"><em>Nota:</em> La fila activa se calcula dinámicamente con los parámetros y ejecuciones de la corrida actual; las demás filas muestran valores de referencia de los escenarios estándar.</p>`;
+        `<p class="note" style="margin-top:6px"><em>Nota:</em> En modo interactivo, todos los escenarios se evalúan con el motor numérico en tiempo real (calculado ahora); el escenario activo refleja los parámetros configurados en el panel de control.</p>`;
     }
   }
 

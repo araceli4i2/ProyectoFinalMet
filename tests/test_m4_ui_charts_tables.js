@@ -165,8 +165,14 @@ async function runTestM4UI() {
     assert(dom['t5_raices'].innerHTML.includes('<table') && dom['t5_raices'].innerHTML.includes('Bisección') && dom['t5_raices'].innerHTML.includes('Newton-Raphson'),
       `t5_raices debe contener tabla de métodos de raíces en ${sc.nombre}`);
     const labelExpected = sc.nombre === 'ESTRES' ? 'ESTRÉS' : sc.nombre.replace('_', ' ');
-    assert(dom['t5_escenarios'].innerHTML.includes('<table') && dom['t5_escenarios'].innerHTML.includes(`${labelExpected} (Activo)`),
+    assert(dom['t5_escenarios'].innerHTML.includes('<table') &&
+      dom['t5_escenarios'].innerHTML.includes(labelExpected) &&
+      dom['t5_escenarios'].innerHTML.includes('calculado ahora · Activo'),
       `t5_escenarios debe resaltar el escenario activo ${sc.nombre}`);
+    assert(dom['t5_escenarios'].innerHTML.includes('Cociente de errores polinomio/spline'),
+      `t5_escenarios debe incluir columna Cociente de errores polinomio/spline`);
+    assert(dom['t5_escenarios'].innerHTML.includes('Amplificación de una perturbación (medida)'),
+      `t5_escenarios debe incluir columna Amplificación de una perturbación (medida)`);
     console.log(`      ✔ Tablas t5, t5_dd, t5_ocultos, t5_raices y t5_escenarios renderizadas con datos.`);
   }
 
@@ -284,6 +290,10 @@ async function runTestM4UI() {
     const labelExpected = st.nombre === 'ESTRES' ? 'ESTRÉS' : st.nombre.replace('_', ' ');
     assert(dom['t5_escenarios'].innerHTML.includes('<table') && dom['t5_escenarios'].innerHTML.includes(`${labelExpected} (Cargado)`),
       `t5_escenarios debe resaltar ${st.nombre} (Cargado)`);
+    assert(dom['t5_escenarios'].innerHTML.includes('Cociente de errores polinomio/spline'),
+      `t5_escenarios debe incluir columna Cociente de errores polinomio/spline`);
+    assert(dom['t5_escenarios'].innerHTML.includes('Amplificación de una perturbación (medida)'),
+      `t5_escenarios debe incluir columna Amplificación de una perturbación (medida)`);
     console.log('      ✔ Tablas t5, t5_dd, t5_ocultos, t5_raices y t5_escenarios reconstruidas sin recálculo.');
   }
 

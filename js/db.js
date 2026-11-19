@@ -1000,7 +1000,7 @@ PRAGMA user_version = 2;
             if (valS.subexp_lebesgue && valS.subexp_lebesgue.lebesgue_equi != null) {
               lebVal = sci(valS.subexp_lebesgue.lebesgue_equi);
             }
-            const sigmaVal = valS.sigma_ruido != null ? valS.sigma_ruido : ((escenario && (escenario.tipo === 'ESTRES' || escenario.tipo === 'E')) ? 0.05 : 0);
+            const sigmaVal = valS.sigma_ruido != null ? valS.sigma_ruido : (escenario?.parametros?.mi?.sigma != null ? escenario.parametros.mi.sigma : '—');
             const ampStr = sci(maxPolyY);
             noteEl.innerHTML = `⚠️ <b>Nota en gráfico (Escenario Estrés):</b> Eje vertical limitado a [-2.5, 2.5] para permitir la visualización de la señal f(t) y del spline natural. Los polinomios globales (Lagrange/Newton) oscilan con amplitud máxima medida de ${ampStr} en los bordes debido al mal condicionamiento de base global (Λ_${nTot} ≈ ${lebVal}) ante ruido sensorial (σ = ${sigmaVal}) en nodos equiespaciados.`;
           } else {
@@ -1212,52 +1212,102 @@ PRAGMA user_version = 2;
         const t5escEl = document.getElementById('t5_escenarios');
         if (t5escEl) {
           const scenNombre = escenario ? (escenario.tipo === 'ESTRES' ? 'ESTRÉS' : escenario.tipo.replace('_', ' ')) : 'NORMAL';
-          const nNodosUsados = sNod ? sNod.pts.length : (valS.subexp_lebesgue?.n_usados || '—');
-          const nOcultos = sOcu ? sOcu.pts.length : 3;
-          const nTotal = (typeof nNodosUsados === 'number' && typeof nOcultos === 'number') ? (nNodosUsados + nOcultos) : '—';
-          const distribucion = (valS.distribucion === 'cheb') ? 'Chebyshev' : 'Equiespaciada';
-          const sigma = (valS.sigma_ruido != null)
-            ? (valS.sigma_ruido > 0 ? `σ = ${valS.sigma_ruido} (sem. ${valS.semilla || 2026})` : 'σ = 0')
-            : (escenario && (escenario.tipo === 'ESTRES' || escenario.tipo === 'E') ? 'σ = 0.05 (sem. 2026)' : 'σ = 0');
+          const nNodosUsados = (sNod && sNod.pts) ? sNod.pts.length : (valS.subexp_lebesgue?.n_usados != null ? valS.subexp_lebesgue.n_usados : (valS.xs ? valS.xs.length : null));
+          const nOcultos = (sOcu && sOcu.pts) ? sOcu.pts.length : (valS.puntos_ocultos_evaluados ? valS.puntos_ocultos_evaluados.length : (valS.puntos_ocultos ? valS.puntos_ocultos.length : null));
+          const nTotal = (typeof nNodosUsados === 'number' && typeof nOcultos === 'number') ? (nNodosUsados + nOcultos) : (valS.subexp_lebesgue?.n_total != null ? valS.subexp_lebesgue.n_total : '—');
+          const nodosStr = (typeof nNodosUsados === 'number' && typeof nOcultos === 'number')
+            ? `${nTotal} (${nNodosUsados} usados / ${nOcultos} ocultos)`
+            : (typeof nNodosUsados === 'number' ? `${nNodosUsados} usados` : '—');
+
+          const distribucion = valS.distribucion ? (valS.distribucion === 'cheb' ? 'Chebyshev' : (valS.distribucion === 'equi' ? 'Equiespaciada' : valS.distribucion)) : (escenario?.parametros?.mi?.distrib === 'cheb' ? 'Chebyshev' : (escenario?.parametros?.mi?.distrib === 'equi' ? 'Equiespaciada' : '—'));
+
+          const sigma = valS.sigma_ruido != null ? valS.sigma_ruido : (escenario?.parametros?.mi?.sigma != null ? escenario.parametros.mi.sigma : null);
+          const seed = valS.semilla != null ? valS.semilla : (escenario?.parametros?.mi?.seed != null ? escenario.parametros.mi.seed : null);
+          const sigStr = (typeof sigma === 'number')
+            ? (sigma > 0 ? `σ = ${sigma}${seed != null ? ` (sem. ${seed})` : ''}` : 'σ = 0')
+            : '—';
           
-          let lebesgue = '—';
-          if (valS.subexp_lebesgue && valS.subexp_lebesgue.lebesgue_equi != null) {
-            lebesgue = `Λ_${nTotal} ≈ ${sci(valS.subexp_lebesgue.lebesgue_equi)}`;
-            if (valS.subexp_lebesgue.lebesgue_cheb != null) {
-              lebesgue += ` (Cheb: ${fmt(valS.subexp_lebesgue.lebesgue_cheb, 2)})`;
+          let lebStr = '—';
+          if (valS.subexp_lebesgue && typeof valS.subexp_lebesgue.lebesgue_equi === 'number') {
+            lebStr = `Λ_${nTotal !== '—' ? nTotal : 'N'} ≈ ${sci(valS.subexp_lebesgue.lebesgue_equi)}`;
+            if (typeof valS.subexp_lebesgue.lebesgue_cheb === 'number') {
+              lebStr += ` (Cheb: ${fmt(valS.subexp_lebesgue.lebesgue_cheb, 2)})`;
             }
           }
 
-          const errSpline = (valS.error_maximo != null) ? sci(valS.error_maximo) : '—';
-          const errPoly = (valL.error_maximo != null) ? sci(valL.error_maximo) : '—';
+          const errSpline = (typeof valS.error_maximo === 'number') ? valS.error_maximo : null;
+          const errPoly = (typeof valL.error_maximo === 'number') ? valL.error_maximo : null;
+          const errSplStr = errSpline != null ? sci(errSpline) : '—';
+          const errPolyStr = errPoly != null ? sci(errPoly) : '—';
           
-          let amplificacion = '—';
-          if (valS.subexp_lebesgue && valS.subexp_lebesgue.amplificacion_medida != null) {
-            amplificacion = `${sci(valS.subexp_lebesgue.amplificacion_medida)}×`;
-          } else if (valL.error_maximo != null && valS.error_maximo != null && valS.error_maximo > 0) {
-            amplificacion = `${(valL.error_maximo / valS.error_maximo).toExponential(1)}×`;
+          const cocienteStr = (errPoly != null && errSpline != null && errSpline > 0)
+            ? `${(errPoly / errSpline).toExponential(2)}×`
+            : '—';
+
+          const ampPert = (valS.subexp_lebesgue && typeof valS.subexp_lebesgue.amplificacion_medida === 'number') ? valS.subexp_lebesgue.amplificacion_medida : null;
+          const cotaLebEps = (valS.subexp_lebesgue && typeof valS.subexp_lebesgue.cota_lebesgue_epsilon === 'number') ? valS.subexp_lebesgue.cota_lebesgue_epsilon : null;
+          const errNominal = (valS.subexp_lebesgue && typeof valS.subexp_lebesgue.error_nominal_max === 'number') ? valS.subexp_lebesgue.error_nominal_max : null;
+
+          const ampStr = ampPert != null
+            ? `${sci(ampPert)}×` + (cotaLebEps != null ? ` (cota Λ·ε = ${sci(cotaLebEps)})` : '')
+            : '—';
+
+          // Diagnóstico generado dinámicamente desde los datos guardados
+          let cmpStr = '';
+          const nStr = nTotal !== '—' ? nTotal : (typeof nNodosUsados === 'number' ? nNodosUsados : '—');
+          const kStr = typeof nOcultos === 'number' ? nOcultos : '—';
+          const sigTxt = typeof sigma === 'number' ? String(sigma) : '—';
+          if (errPoly != null && errSpline != null) {
+            if (errPoly < errSpline) {
+              cmpStr = `Polinomio más preciso que spline (${sci(errPoly)} vs ${sci(errSpline)}) con n = ${nStr}, k = ${kStr}, σ = ${sigTxt}.`;
+            } else if (errSpline < errPoly) {
+              cmpStr = `Spline más preciso que polinomio (${sci(errSpline)} vs ${sci(errPoly)}) con n = ${nStr}, k = ${kStr}, σ = ${sigTxt}.`;
+            } else {
+              cmpStr = `Polinomio y spline con error idéntico (${sci(errPoly)}) con n = ${nStr}, k = ${kStr}, σ = ${sigTxt}.`;
+            }
           }
 
-          let diagnostico = '';
-          if (escenario && (escenario.tipo === 'ESTRES' || escenario.tipo === 'E')) {
-            diagnostico = 'Divergencia en bordes por explosión de Λ_N ante ruido; Spline no amplifica ruido (error ~3σ).';
-          } else if (escenario && (escenario.tipo === 'MAL_CONDICIONADO' || escenario.tipo === 'MC')) {
-            diagnostico = 'Base polinomial global hipersensible a perturbaciones; spline cúbico recomendado.';
-          } else {
-            diagnostico = 'Polinomio más preciso por analiticidad de f(t); spline natural estable con convergencia O(h⁴).';
+          let noiseStr = '';
+          if (typeof sigma === 'number' && sigma > 0 && errSpline != null) {
+            const multSig = (errSpline / sigma).toFixed(2);
+            noiseStr = ` Con ruido σ = ${sigma}, error spline medido = ${multSig}·σ (${sci(errSpline)} / ${sigma}) en una sola realización de ruido${seed != null ? ` (semilla ${seed})` : ''}.`;
           }
 
-          const headersEsc = ['Escenario', 'Nodos (Usados/Ocultos)', 'Distribución', 'Ruido σ (Semilla)', 'Lebesgue Λ_N', 'Error Máx Spline', 'Error Máx Polinomio', 'Amplificación', 'Diagnóstico'];
+          let pertStr = '';
+          if (ampPert != null) {
+            const cotaStr = cotaLebEps != null ? ` (cota Λ·ε = ${sci(cotaLebEps)})` : '';
+            if (errNominal != null) {
+              pertStr = ` Con datos exactos (nominal), polinomio tiene error máx ${sci(errNominal)}; ante perturbación amplifica ${sci(ampPert)}×${cotaStr}.`;
+            } else {
+              pertStr = ` Perturbación: amplificación medida = ${sci(ampPert)}×${cotaStr}.`;
+            }
+          }
+
+          const diagnostico = (cmpStr + noiseStr + pertStr).trim() || '—';
+
+          const headersEsc = [
+            'Escenario',
+            'Nodos (Usados/Ocultos)',
+            'Distribución',
+            'Ruido σ (Semilla)',
+            'Lebesgue Λ_N',
+            'Error Máx Spline',
+            'Error Máx Polinomio',
+            'Cociente de errores polinomio/spline',
+            'Amplificación de una perturbación (medida)',
+            'Diagnóstico'
+          ];
           const rowsEsc = [
             [
               `<b>● ${scenNombre} (Cargado) · Simulación #${simulacion.id}</b>`,
-              `${nTotal} (${nNodosUsados} usados / ${nOcultos} ocultos)`,
+              nodosStr,
               distribucion,
-              sigma,
-              lebesgue,
-              errSpline,
-              errPoly,
-              amplificacion,
+              sigStr,
+              lebStr,
+              errSplStr,
+              errPolyStr,
+              cocienteStr,
+              ampStr,
               diagnostico
             ]
           ];
