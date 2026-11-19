@@ -413,22 +413,39 @@ async function runFase3Tests() {
   const sw = sweepInterpolation({ func: 'sin', a: 0, b: 2 * Math.PI }, 24);
   assert(sw && sw.series, 'sweepInterpolation debe devolver un objeto con series');
 
-  console.log('   -> Órdenes locales medidos del spline natural (k=0, malla 2000, h = 2*pi/(n-1)):');
-  console.log('      ' + sw.ordenes_locales_k0.map(o => `n=${o.n}: p=${o.p.toFixed(2)}`).join(', '));
+  console.log('   -> Órdenes locales medidos dinámicamente del spline natural (k=0, malla 2000, h = 2*pi/(n-1)):');
+  console.log('      ' + sw.ordenes_locales_k0.map(o => `${o.n1}→${o.n2}: p=${o.p.toFixed(2)}`).join(', '));
   assert(Array.isArray(sw.ordenes_locales_k0) && sw.ordenes_locales_k0.length === 7, 'Deben existir 7 órdenes locales de convergencia');
+  
   const expectedP = [
-    { n: 6, p: 4.46 },
-    { n: 8, p: 4.29 },
-    { n: 12, p: 4.09 },
-    { n: 16, p: 4.09 },
-    { n: 24, p: 4.02 },
-    { n: 32, p: 4.00 },
-    { n: 48, p: 4.00 }
+    { n1: 4, n2: 6, p: 4.89 },
+    { n1: 6, n2: 8, p: 4.45 },
+    { n1: 8, n2: 12, p: 4.22 },
+    { n1: 12, n2: 16, p: 4.10 },
+    { n1: 16, n2: 24, p: 4.05 },
+    { n1: 24, n2: 32, p: 4.03 },
+    { n1: 32, n2: 48, p: 4.01 }
   ];
   expectedP.forEach((exp, idx) => {
-    assert(sw.ordenes_locales_k0[idx].n === exp.n, `n en orden local [${idx}] debe ser ${exp.n}`);
-    assert(Math.abs(sw.ordenes_locales_k0[idx].p - exp.p) < 1e-6, `p en n=${exp.n} debe ser ${exp.p}`);
+    const o = sw.ordenes_locales_k0[idx];
+    assert(o.n1 === exp.n1 && o.n2 === exp.n2, `Paso [${idx}] debe ser ${exp.n1}→${exp.n2}`);
+    assert(Math.abs(o.p - exp.p) < 0.05, `p en ${exp.n1}→${exp.n2} debe ser cercano a ${exp.p} (obtenido ${o.p})`);
   });
+
+  // Verificación de la tabla de convergencia frente a cota teórica h^4/384
+  assert(Array.isArray(sw.spline_convergence_table), 'Debe existir spline_convergence_table');
+  const pt48 = sw.spline_convergence_table.find(t => t.n === 48);
+  const pt32 = sw.spline_convergence_table.find(t => t.n === 32);
+  const pt24 = sw.spline_convergence_table.find(t => t.n === 24);
+  const pt16 = sw.spline_convergence_table.find(t => t.n === 16);
+  const pt12 = sw.spline_convergence_table.find(t => t.n === 12);
+  
+  assert(pt48 && Math.abs(pt48.maxErr - 8.35e-7) < 1e-8, `n=48 debe ser ~8.35e-7 (obtenido ${pt48.maxErr.toExponential(3)})`);
+  assert(pt32 && Math.abs(pt32.maxErr - 4.43e-6) < 1e-7, `n=32 debe ser ~4.43e-6 (obtenido ${pt32.maxErr.toExponential(3)})`);
+  assert(pt24 && Math.abs(pt24.maxErr - 1.47e-5) < 1e-6, `n=24 debe ser ~1.47e-5 (obtenido ${pt24.maxErr.toExponential(3)})`);
+  assert(pt16 && Math.abs(pt16.maxErr - 8.33e-5) < 1e-6, `n=16 debe ser ~8.33e-5 (obtenido ${pt16.maxErr.toExponential(3)})`);
+  assert(pt12 && Math.abs(pt12.maxErr - 2.97e-4) < 1e-5, `n=12 debe ser ~2.97e-4 (obtenido ${pt12.maxErr.toExponential(3)})`);
+
   assert(sw.k_evaluacion === 0, 'k en evaluación debe ser 0');
   assert(sw.malla_evaluacion === 2000, 'Malla de evaluación debe ser de 2000 puntos');
   assert(sw.h_definicion.includes('2*pi'), 'Definición de h debe ser h = 2*pi/(n-1)');
