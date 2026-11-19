@@ -91,15 +91,15 @@ async function runCountsTest() {
   assert(counts[3].iters === 954, `M3 esperado 954 iteraciones, obtenido ${counts[3].iters}`);
   assert(counts[3].series === 6, `M3 esperado 6 series, obtenido ${counts[3].series}`);
 
-  // Módulo 4: 7 ejecuciones (LU, Jacobi:280, GS:117, CG:5, Spline, Lagrange, Newton DD:9), 411 iteraciones, 29 series (incluye barrido de nodos y Lebesgue)
-  assert(counts[4].execs === 7, `M4 esperado 7 ejecuciones, obtenido ${counts[4].execs}`);
-  assert(counts[4].iters === 411, `M4 esperado 411 iteraciones, obtenido ${counts[4].iters}`);
-  assert(counts[4].series === 29, `M4 esperado 29 series, obtenido ${counts[4].series}`);
+  // Módulo 4: 10 ejecuciones (LU, Jacobi:280, GS:117, CG:5, Spline, Lagrange, Newton DD:9, Bisección:33, Newton-Raphson:4, Secante:7), 455 iteraciones, 32 series (incluye barrido de nodos, Lebesgue y cruce de umbral)
+  assert(counts[4].execs === 10, `M4 esperado 10 ejecuciones, obtenido ${counts[4].execs}`);
+  assert(counts[4].iters === 455, `M4 esperado 455 iteraciones, obtenido ${counts[4].iters}`);
+  assert(counts[4].series === 32, `M4 esperado 32 series, obtenido ${counts[4].series}`);
 
-  // Totales globales: 25 ejecuciones, 1498 iteraciones, 48 series
-  assert(totalExecs === 25, `Total ejecuciones esperado 25, obtenido ${totalExecs}`);
-  assert(totalIters === 1498, `Total iteraciones esperado 1498, obtenido ${totalIters}`);
-  assert(totalSeries === 48, `Total series esperado 48, obtenido ${totalSeries}`);
+  // Totales globales: 28 ejecuciones, 1542 iteraciones, 51 series
+  assert(totalExecs === 28, `Total ejecuciones esperado 28, obtenido ${totalExecs}`);
+  assert(totalIters === 1542, `Total iteraciones esperado 1542, obtenido ${totalIters}`);
+  assert(totalSeries === 51, `Total series esperado 51, obtenido ${totalSeries}`);
 
   // 5. Verificación de inserción en base de datos SQLite transaccional
   console.log('5. Verificando persistencia física en base SQLite...');
@@ -138,10 +138,10 @@ async function runCountsTest() {
   const countRows = table => db.exec(`SELECT COUNT(*) FROM ${table};`)[0].values[0][0];
 
   assert(countRows('simulacion') === 4, 'Deben existir 4 simulaciones guardadas (1 por módulo)');
-  assert(countRows('ejecucion_metodo') === 25, `Deben existir 25 ejecuciones en BD (obtenido ${countRows('ejecucion_metodo')})`);
-  assert(countRows('iteracion_resultado') === 1498, `Deben existir 1498 filas de iteración en BD (obtenido ${countRows('iteracion_resultado')})`);
-  assert(countRows('serie_grafico') === 48, `Deben existir 48 series en BD (obtenido ${countRows('serie_grafico')})`);
-  assert(countRows('resultado_resumen') === 25, `Deben existir 25 resúmenes 1:1 en BD (obtenido ${countRows('resultado_resumen')})`);
+  assert(countRows('ejecucion_metodo') === 28, `Deben existir 28 ejecuciones en BD (obtenido ${countRows('ejecucion_metodo')})`);
+  assert(countRows('iteracion_resultado') === 1542, `Deben existir 1542 filas de iteración en BD (obtenido ${countRows('iteracion_resultado')})`);
+  assert(countRows('serie_grafico') === 51, `Deben existir 51 series en BD (obtenido ${countRows('serie_grafico')})`);
+  assert(countRows('resultado_resumen') === 28, `Deben existir 28 resúmenes 1:1 en BD (obtenido ${countRows('resultado_resumen')})`);
 
   console.log('   -> Filas confirmadas en SQLite:');
   console.log(`      ejecucion_metodo:    ${countRows('ejecucion_metodo')}`);

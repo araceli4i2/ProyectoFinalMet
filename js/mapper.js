@@ -779,6 +779,169 @@ const Mapper = (() => {
           ...swSeriesNewton
         ]
       });
+
+      // --- CRUCE DE UMBRAL (Familia RAICES en M4) ---
+      if (ri.cruce_umbral) {
+        const cu = ri.cruce_umbral;
+        const uVal = sanitizeNumber(cu.u);
+        const tAn = sanitizeNumber(cu.t_analitico);
+        const refStr = (tAn != null)
+          ? `Solución analítica t* = ${Number(tAn).toFixed(6)} [arcsin(u)]`
+          : 'Solución analítica';
+
+        // 1. Bisección
+        if (cu.biseccion) {
+          const bRes = cu.biseccion;
+          const bIters = (bRes.hist || []).map(it => ({
+            numero: it.numero,
+            aproximacion_json: JSON.stringify({ a: sanitizeNumber(it.a), b: sanitizeNumber(it.b), t: sanitizeNumber(it.t) }),
+            residual: sanitizeNumber(it.residual),
+            error_abs: sanitizeNumber(it.error_abs),
+            error_rel: safeRelError(it.error_abs, it.t)
+          }));
+          const errAn = (tAn != null && bRes.x != null) ? Math.abs(bRes.x - tAn) : null;
+          executions.push({
+            caso_id: 4,
+            familia: 'RAICES',
+            metodo: 'Bisección',
+            tolerancia: 1e-10,
+            paso: null,
+            max_iter: 100,
+            convergio: Boolean(bRes.convergio),
+            estado: toDbEstado(bRes.estado, bRes.convergio),
+            tiempo_ms: null,
+            iteraciones: bIters,
+            resumen: {
+              referencia: refStr,
+              valor_json: JSON.stringify({
+                t_star: sanitizeNumber(bRes.x),
+                t_analitico: tAn,
+                umbral_u: uVal,
+                iteraciones: bRes.it,
+                residual: sanitizeNumber(bRes.residual),
+                error_vs_analitica: sanitizeNumber(errAn),
+                cruces_spline: cu.cruces_spline,
+                cruces_polinomio: cu.cruces_polinomio,
+                raiz_polinomio: sanitizeNumber(cu.t_star_poly),
+                diferencia_spline_polinomio: sanitizeNumber(cu.diff_spline_poly)
+              }),
+              metrica_error_json: JSON.stringify({
+                residual: sanitizeNumber(bRes.residual),
+                error_abs: sanitizeNumber(errAn),
+                error_rel: safeRelError(errAn, tAn),
+                tolerancia: 1e-10
+              }),
+              conclusion_numerica: `Convergencia lineal de Bisección sobre spline natural S(t) = ${uVal}: t* = ${bRes.x != null ? Number(bRes.x).toFixed(6) : '—'} en ${bRes.it} iteraciones (residual ${bRes.residual != null ? Number(bRes.residual).toExponential(2) : '—'}, |t* - t*_an| = ${errAn != null ? Number(errAn).toExponential(3) : '—'}). Spline presenta ${cu.cruces_spline} cruces limpios frente a ${cu.cruces_polinomio} oscilaciones del polinomio en la malla.`,
+              conclusion_problema: `Detección de cruce de umbral de seguridad u = ${uVal} en señal sensorial interpolada.`
+            },
+            series: [
+              { nombre: 'M4_cruce_umbral', datos_json: JSON.stringify((bRes.hist || []).map(it => ({ x: it.numero, y: sanitizeNumber(it.t), residual: sanitizeNumber(it.residual), error_abs: sanitizeNumber(it.error_abs) }))) }
+            ]
+          });
+        }
+
+        // 2. Newton-Raphson
+        if (cu.newton) {
+          const nRes = cu.newton;
+          const nIters = (nRes.hist || []).map(it => ({
+            numero: it.numero,
+            aproximacion_json: JSON.stringify({ t: sanitizeNumber(it.t), derivada: sanitizeNumber(it.derivada) }),
+            residual: sanitizeNumber(it.residual),
+            error_abs: sanitizeNumber(it.error_abs),
+            error_rel: safeRelError(it.error_abs, it.t)
+          }));
+          const errAn = (tAn != null && nRes.x != null) ? Math.abs(nRes.x - tAn) : null;
+          executions.push({
+            caso_id: 4,
+            familia: 'RAICES',
+            metodo: 'Newton-Raphson',
+            tolerancia: 1e-10,
+            paso: null,
+            max_iter: 100,
+            convergio: Boolean(nRes.convergio),
+            estado: toDbEstado(nRes.estado, nRes.convergio),
+            tiempo_ms: null,
+            iteraciones: nIters,
+            resumen: {
+              referencia: refStr,
+              valor_json: JSON.stringify({
+                t_star: sanitizeNumber(nRes.x),
+                t_analitico: tAn,
+                umbral_u: uVal,
+                iteraciones: nRes.it,
+                residual: sanitizeNumber(nRes.residual),
+                error_vs_analitica: sanitizeNumber(errAn),
+                cruces_spline: cu.cruces_spline,
+                cruces_polinomio: cu.cruces_polinomio,
+                raiz_polinomio: sanitizeNumber(cu.t_star_poly),
+                diferencia_spline_polinomio: sanitizeNumber(cu.diff_spline_poly)
+              }),
+              metrica_error_json: JSON.stringify({
+                residual: sanitizeNumber(nRes.residual),
+                error_abs: sanitizeNumber(errAn),
+                error_rel: safeRelError(errAn, tAn),
+                tolerancia: 1e-10
+              }),
+              conclusion_numerica: `Convergencia cuadrática de Newton-Raphson con derivada analítica del spline S'(t): t* = ${nRes.x != null ? Number(nRes.x).toFixed(6) : '—'} en ${nRes.it} iteraciones (residual ${nRes.residual != null ? Number(nRes.residual).toExponential(2) : '—'}, |t* - t*_an| = ${errAn != null ? Number(errAn).toExponential(3) : '—'}). Derivada analítica por tramos evita aproximaciones numéricas finitas.`,
+              conclusion_problema: `Detección de cruce de umbral de seguridad u = ${uVal} en señal sensorial interpolada.`
+            },
+            series: [
+              { nombre: 'M4_cruce_umbral', datos_json: JSON.stringify((nRes.hist || []).map(it => ({ x: it.numero, y: sanitizeNumber(it.t), residual: sanitizeNumber(it.residual), error_abs: sanitizeNumber(it.error_abs) }))) }
+            ]
+          });
+        }
+
+        // 3. Secante
+        if (cu.secante) {
+          const sRes = cu.secante;
+          const sIters = (sRes.hist || []).map(it => ({
+            numero: it.numero,
+            aproximacion_json: JSON.stringify({ x0: sanitizeNumber(it.x0), x1: sanitizeNumber(it.x1), t: sanitizeNumber(it.t) }),
+            residual: sanitizeNumber(it.residual),
+            error_abs: sanitizeNumber(it.error_abs),
+            error_rel: safeRelError(it.error_abs, it.t)
+          }));
+          const errAn = (tAn != null && sRes.x != null) ? Math.abs(sRes.x - tAn) : null;
+          executions.push({
+            caso_id: 4,
+            familia: 'RAICES',
+            metodo: 'Secante',
+            tolerancia: 1e-10,
+            paso: null,
+            max_iter: 100,
+            convergio: Boolean(sRes.convergio),
+            estado: toDbEstado(sRes.estado, sRes.convergio),
+            tiempo_ms: null,
+            iteraciones: sIters,
+            resumen: {
+              referencia: refStr,
+              valor_json: JSON.stringify({
+                t_star: sanitizeNumber(sRes.x),
+                t_analitico: tAn,
+                umbral_u: uVal,
+                iteraciones: sRes.it,
+                residual: sanitizeNumber(sRes.residual),
+                error_vs_analitica: sanitizeNumber(errAn),
+                cruces_spline: cu.cruces_spline,
+                cruces_polinomio: cu.cruces_polinomio,
+                raiz_polinomio: sanitizeNumber(cu.t_star_poly),
+                diferencia_spline_polinomio: sanitizeNumber(cu.diff_spline_poly)
+              }),
+              metrica_error_json: JSON.stringify({
+                residual: sanitizeNumber(sRes.residual),
+                error_abs: sanitizeNumber(errAn),
+                error_rel: safeRelError(errAn, tAn),
+                tolerancia: 1e-10
+              }),
+              conclusion_numerica: `Convergencia superlineal (orden ≈ 1.618) de Secante con dos semillas: t* = ${sRes.x != null ? Number(sRes.x).toFixed(6) : '—'} en ${sRes.it} iteraciones (residual ${sRes.residual != null ? Number(sRes.residual).toExponential(2) : '—'}, |t* - t*_an| = ${errAn != null ? Number(errAn).toExponential(3) : '—'}). No requiere cálculo de derivada.`,
+              conclusion_problema: `Detección de cruce de umbral de seguridad u = ${uVal} en señal sensorial interpolada.`
+            },
+            series: [
+              { nombre: 'M4_cruce_umbral', datos_json: JSON.stringify((sRes.hist || []).map(it => ({ x: it.numero, y: sanitizeNumber(it.t), residual: sanitizeNumber(it.residual), error_abs: sanitizeNumber(it.error_abs) }))) }
+            ]
+          });
+        }
+      }
     }
 
     // --- EXTENSIBILIDAD: Ejecuciones adicionales inyectadas por módulos de compañeros ---

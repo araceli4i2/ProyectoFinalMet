@@ -458,6 +458,118 @@ async function runFase3Tests() {
   assert(noiseS_24 < 0.25, `Spline con ruido en n=24 debe permanecer acotado (<0.25, obtenido ${noiseS_24})`);
   console.log('   ✔ Comportamiento de bifurcación de estabilidad y constante de Lebesgue validado numéricamente.');
 
+  // =========================================================================
+  // FASE 5: CRUCE DE UMBRAL CON BISECCIÓN, NEWTON-RAPHSON Y SECANTE
+  // =========================================================================
+  console.log('\n--- 16. Verificación de Métodos Genéricos de Raíces sobre sin(t) = 0.5 ---');
+  const { biseccion, newtonRaphson, secante, splineDeriv } = sandbox;
+  assert(typeof biseccion === 'function', 'biseccion debe estar exportada');
+  assert(typeof newtonRaphson === 'function', 'newtonRaphson debe estar exportada');
+  assert(typeof secante === 'function', 'secante debe estar exportada');
+
+  const fTarget = t => Math.sin(t) - 0.5;
+  const dfTarget = t => Math.cos(t);
+  const tAnalitico = Math.PI / 6; // 0.523598775598...
+
+  // Bisección en [0, pi/2]
+  const bTest = biseccion(fTarget, 0, Math.PI / 2, 1e-10, 100);
+  assert(bTest.convergio, 'Bisección debe converger en [0, pi/2]');
+  assertClose(bTest.x, tAnalitico, 1e-9, 'Raíz de bisección sin(t)=0.5');
+  assert(bTest.residual < 1e-9, `Residual de bisección debe ser < 1e-9 (obtenido ${bTest.residual})`);
+  console.log(`   ✔ Bisección converge a t* = ${bTest.x.toFixed(8)} (analítico = ${tAnalitico.toFixed(8)}, iters = ${bTest.it}, res = ${bTest.residual.toExponential(2)})`);
+
+  // Newton-Raphson desde x0 = 0.3
+  const nTest = newtonRaphson(fTarget, dfTarget, 0.3, 1e-10, 100);
+  assert(nTest.convergio, 'Newton-Raphson debe converger desde x0=0.3');
+  assertClose(nTest.x, tAnalitico, 1e-10, 'Raíz de Newton sin(t)=0.5');
+  assert(nTest.residual < 1e-10, `Residual de Newton debe ser < 1e-10 (obtenido ${nTest.residual})`);
+  console.log(`   ✔ Newton-Raphson converge a t* = ${nTest.x.toFixed(8)} (iters = ${nTest.it}, res = ${nTest.residual.toExponential(2)})`);
+
+  // Secante desde x0 = 0.2, x1 = 0.8
+  const sTest = secante(fTarget, 0.2, 0.8, 1e-10, 100);
+  assert(sTest.convergio, 'Secante debe converger desde [0.2, 0.8]');
+  assertClose(sTest.x, tAnalitico, 1e-10, 'Raíz de Secante sin(t)=0.5');
+  assert(sTest.residual < 1e-10, `Residual de Secante debe ser < 1e-10 (obtenido ${sTest.residual})`);
+  console.log(`   ✔ Secante converge a t* = ${sTest.x.toFixed(8)} (iters = ${sTest.it}, res = ${sTest.residual.toExponential(2)})`);
+
+  // Control de errores y robustez: Bisección sin cambio de signo (no debe lanzar excepción)
+  const bNoSign = biseccion(fTarget, 1.0, 1.5, 1e-10, 100);
+  assert(!bNoSign.convergio, 'Bisección sin cambio de signo no debe converger');
+  assert(bNoSign.x === null, 'x debe ser null si no hay cambio de signo');
+  assert(bNoSign.estado === 'NO_ALCANZO_TOL', 'Estado debe ser NO_ALCANZO_TOL');
+  assert(typeof bNoSign.aviso === 'string' && bNoSign.aviso.includes('Sin cambio de signo'), 'Debe reportar aviso descriptivo');
+  console.log(`   ✔ Bisección sin cambio de signo devuelve aviso claro sin excepción: "${bNoSign.aviso}"`);
+
+  // Control de errores: Newton con derivada casi nula
+  const nZeroDeriv = newtonRaphson(t => t * t, t => 0.0, 1.0, 1e-10, 100);
+  assert(!nZeroDeriv.convergio, 'Newton con f\'=0 no debe converger');
+  assert(nZeroDeriv.estado === 'DIVERGIO', 'Estado debe ser DIVERGIO');
+  console.log(`   ✔ Newton-Raphson detecta derivada casi nula y reporta DIVERGIO.`);
+
+  console.log('\n--- 17. Cruce de Umbral sobre Curva Interpolada por Escenario ---');
+  // Normal
+  const riNorm = sandbox.modInterp(sandbox.PRE.N.mi);
+  const cuNorm = riNorm.cruce_umbral;
+  assert(cuNorm, 'ri debe incluir objeto cruce_umbral');
+  assert(cuNorm.cruces_spline === 2, `Spline en Normal debe tener 2 cruces (obtenido ${cuNorm.cruces_spline})`);
+  assert(cuNorm.cruces_polinomio === 2, `Polinomio en Normal debe tener 2 cruces (obtenido ${cuNorm.cruces_polinomio})`);
+  assertClose(cuNorm.t_star_spline, 0.53035198, 1e-6, 'Raíz del spline en Normal');
+  assertClose(cuNorm.t_star_poly, 0.52208726, 1e-6, 'Raíz del polinomio en Normal');
+  console.log(`   ✔ Normal: Spline t* = ${cuNorm.t_star_spline.toFixed(6)} (|e_an| = ${cuNorm.diff_spline_analitica.toExponential(3)}), Poly t* = ${cuNorm.t_star_poly.toFixed(6)} (|e_an| = ${cuNorm.diff_poly_analitica.toExponential(3)}), |diff| = ${cuNorm.diff_spline_poly.toExponential(3)}`);
+
+  // Estrés: Comparación de cruces (14 en polinomio vs 2 en spline)
+  const riEstres = sandbox.modInterp(sandbox.PRE.E.mi);
+  const cuEstres = riEstres.cruce_umbral;
+  assert(cuEstres.cruces_spline === 2, `Spline en Estrés debe tener exactamente 2 cruces limpios (obtenido ${cuEstres.cruces_spline})`);
+  assert(cuEstres.cruces_polinomio === 14, `Polinomio en Estrés debe cruzar 14 veces por oscilaciones salvajes (obtenido ${cuEstres.cruces_polinomio})`);
+  console.log(`   ✔ Estrés (N=40, sigma=0.05): Spline = ${cuEstres.cruces_spline} cruces limpios vs Polinomio = ${cuEstres.cruces_polinomio} cruces espurios por oscilación en bordes.`);
+
+  // Mal Condicionado
+  const riMC_5 = sandbox.modInterp(sandbox.PRE.MC.mi);
+  const cuMC = riMC_5.cruce_umbral;
+  assert(cuMC.cruces_spline === 2, `Spline en MC debe tener 2 cruces (obtenido ${cuMC.cruces_spline})`);
+  assertClose(cuMC.t_star_spline, tAnalitico, 2e-4, 'Raíz del spline en MC muy cercana a analítica');
+  console.log(`   ✔ Mal Condicionado: Spline t* = ${cuMC.t_star_spline.toFixed(6)} (|diff vs analitica| = ${cuMC.diff_spline_analitica.toExponential(3)})`);
+
+  console.log('\n--- 18. Persistencia y Relanzamiento de M4 con Raíces (coincide = 1) ---');
+  const dbTest = new SQL.Database();
+  dbTest.run('PRAGMA foreign_keys = ON;');
+  dbTest.run(fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8'));
+
+  const p4N = sandbox.PRE.N.m4;
+  const pmiN = sandbox.PRE.N.mi;
+  const r4N = sandbox.mod4(p4N);
+  const s4RowsN = r4N.rows;
+  const lastM4 = { r4: r4N, ri: riNorm, s4Rows: s4RowsN, SYS: sandbox.SYS, solverRows: sandbox.solverRows };
+  const execsM4 = Mapper.buildAllExecutions(lastM4, { m4: p4N, mi: pmiN }, 'N').filter(e => e.caso_id === 4);
+
+  assert(execsM4.length === 10, `M4 debe tener 10 ejecuciones (obtenido ${execsM4.length})`);
+  const rootExecs = execsM4.filter(e => e.familia === 'RAICES');
+  assert(rootExecs.length === 3, `Deben existir 3 ejecuciones de familia RAICES (obtenido ${rootExecs.length})`);
+
+  const saveRes = DB.saveSimulationTransaction({
+    escenario: {
+      caso_id: 4,
+      tipo: 'NORMAL',
+      parametros_json: { ...p4N, mi: pmiN },
+      fuente_datos: 'Test Fase 5 Raices'
+    },
+    simulacion: {
+      fecha: '2026-11-20 12:00:00',
+      usuario_equipo: 'Investigador_M4',
+      estado: 'COMPLETADO'
+    },
+    ejecuciones: execsM4
+  }, dbTest);
+
+  const origId = saveRes.simulacion_id;
+  const relan = await DB.relaunchSimulation(origId, 1e-9, dbTest, sandbox);
+  const compRow = dbTest.exec(`SELECT coincide, diferencia_max, estado FROM simulacion WHERE id = ${relan.simulacion_id};`)[0].values[0];
+  console.log(`   -> Simulación #${origId} relanzada como #${relan.simulacion_id}: coincide = ${compRow[0]}, diff_max = ${compRow[1]}, estado = ${compRow[2]}`);
+  assert(compRow[0] === 1, `Relanzamiento de M4 debe coincidir (obtenido ${compRow[0]})`);
+  assert(compRow[1] <= 1e-9, `Diferencia máxima debe ser <= 1e-9 (obtenido ${compRow[1]})`);
+  console.log('   ✔ Relanzamiento determinista de M4 con 10 ejecuciones (incluyendo raíces) verificado.');
+
   console.log('\n✅ PRUEBA DE VERIFICACIÓN MANUAL DE M4 Y ESCENARIOS COMPLETADA AL 100% SATISFACTORIAMENTE.');
 }
 

@@ -180,6 +180,13 @@ function splineEval(S, x) {
   const hi = h[i], a = xs[i + 1] - x, b = x - xs[i];
   return M[i] * a ** 3 / (6 * hi) + M[i + 1] * b ** 3 / (6 * hi) + (ys[i] / hi - M[i] * hi / 6) * a + (ys[i + 1] / hi - M[i + 1] * hi / 6) * b;
 }
+function splineDeriv(S, x) {
+  const { xs, ys, h, M } = S;
+  let i = 0;
+  while (i < xs.length - 2 && x > xs[i + 1]) i++;
+  const hi = h[i], a = xs[i + 1] - x, b = x - xs[i];
+  return -M[i] * a * a / (2 * hi) + M[i + 1] * b * b / (2 * hi) + (ys[i + 1] - ys[i]) / hi - (M[i + 1] - M[i]) * hi / 6;
+}
 
 /* ---------- SISTEMAS DE REFERENCIA ---------- */
 const SYS = {
@@ -196,21 +203,21 @@ const PRE = {
     m2: { D0: 0.10, alpha: 0.015, beta: 0.001, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 200, F0: 400, Om: 1.2, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 12, grado: 3, a: -1, b: 1, sigma: 0, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-10 },
-    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1 }
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5 }
   },
   E: {
     m1: { model: 'const', v0: 7, a0: 0.6, amax: 1.50, k: 0.8, c: 0, T: 4, sensor: 0.15, red: 0.55, plc: 0.20, act: 0.30, dseg: 15, h: 0.05 },
     m2: { D0: 0.12, alpha: 0.025, beta: 0.002, Du: 0.30, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 100, F0: 400, Om: 1.9, Alim: 0.5, Tsim: 60, ruido: 0.05, seed: 2026 },
     m4: { pts: 60, grado: 3, a: -1, b: 1, sigma: 0.05, seed: 2026, coefs: '1,2,-1.5,0.5', tol: 1e-12 },
-    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 40, k: 3, distrib: 'equi', sigma: 0.05, seed: 2026, M: 1 }
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 40, k: 3, distrib: 'equi', sigma: 0.05, seed: 2026, M: 1, u: 0.5 }
   },
   MC: {
     m1: { model: 'tang', v0: 5, a0: 1.25, amax: 1.50, k: 2, c: 0, T: 4, sensor: 0.10, red: 0.05, plc: 0.10, act: 0.15, dseg: 15, h: 0.05 },
     m2: { D0: 0.24, alpha: 0.002, beta: 0.0001, Du: 0.2401, tmax: 20 },
     m3: { m: 1000, k: 4000, c: 20, F0: 40, Om: 2.0, Alim: 0.5, Tsim: 150, ruido: 0.05, seed: 2026 },
     m4: { pts: 30, grado: 5, a: 0, b: 1, sigma: 0, seed: 2026, coefs: '1,1,1,1,1,1', tol: 1e-10 },
-    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 21, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1 }
+    mi: { func: 'sin', a: 0, b: 6.283185307179586, n: 21, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5 }
   }
 };
 const INTERP_DEF = PRE.N.mi;
@@ -680,6 +687,84 @@ function modInterp(p) {
   const NwRef = eval_newton.peor_punto ? eval_newton.peor_punto.valor : newtonEval(xs, cN, xtRef);
   const SvRef = eval_spline.peor_punto ? eval_spline.peor_punto.valor : splineEval(S, xtRef);
 
+  // --- CRUCE DE UMBRAL (Bisección, Newton-Raphson, Secante) ---
+  const u = (p.u !== undefined && p.u !== null) ? Number(p.u) : 0.5;
+  const gS = t => splineEval(S, t) - u;
+  const dgS = t => splineDeriv(S, t);
+
+  // Referencia analítica t*
+  let t_analitico = null;
+  if (p.func === 'sin' && Math.abs(u) <= 1) {
+    t_analitico = Math.asin(u);
+  } else if (p.func === 'exp' && u > 0) {
+    t_analitico = -Math.log(u);
+  }
+
+  // Conteo de cruces en la malla de evaluación densa
+  let cruces_spline = 0;
+  let cruces_polinomio = 0;
+  for (let i = 0; i < grid.length - 1; i++) {
+    if ((fS[i] - u) * (fS[i + 1] - u) <= 0) cruces_spline++;
+    if ((fL[i] - u) * (fL[i + 1] - u) <= 0) cruces_polinomio++;
+  }
+
+  // Bracketing interval [a_bis, b_bis] para la raíz del spline más cercana al valor analítico
+  let a_bis = 0, b_bis = Math.PI / 2;
+  if (gS(a_bis) * gS(b_bis) > 0) {
+    let minDiff = Infinity;
+    for (let i = 0; i < grid.length - 1; i++) {
+      if ((fS[i] - u) * (fS[i + 1] - u) <= 0) {
+        const mid = (grid[i] + grid[i + 1]) / 2;
+        const diff = t_analitico != null ? Math.abs(mid - t_analitico) : 0;
+        if (diff < minDiff) {
+          minDiff = diff;
+          a_bis = grid[i];
+          b_bis = grid[i + 1];
+        }
+      }
+    }
+  }
+
+  const tolRoots = p.tol_roots || 1e-10;
+  const maxItRoots = p.max_it_roots || 100;
+
+  const resBiseccion = biseccion(gS, a_bis, b_bis, tolRoots, maxItRoots);
+  const x0_newton = (a_bis + b_bis) / 2;
+  const resNewton = newtonRaphson(gS, dgS, x0_newton, tolRoots, maxItRoots);
+  const resSecante = secante(gS, a_bis, b_bis, tolRoots, maxItRoots);
+
+  // Cruce sobre el polinomio interpolante (Lagrange) para comparación
+  const gP = t => lagrangeEval(xs, ys, t) - u;
+  let resPolinomio = null;
+  let a_p = 0, b_p = Math.PI / 2;
+  if (gP(a_p) * gP(b_p) <= 0) {
+    resPolinomio = biseccion(gP, a_p, b_p, tolRoots, maxItRoots);
+  } else {
+    for (let i = 0; i < grid.length - 1; i++) {
+      if ((fL[i] - u) * (fL[i + 1] - u) <= 0) {
+        a_p = grid[i]; b_p = grid[i + 1];
+        resPolinomio = biseccion(gP, a_p, b_p, tolRoots, maxItRoots);
+        break;
+      }
+    }
+  }
+
+  const cruce_umbral = {
+    u,
+    t_analitico,
+    cruces_spline,
+    cruces_polinomio,
+    biseccion: resBiseccion,
+    newton: resNewton,
+    secante: resSecante,
+    polinomio: resPolinomio,
+    t_star_spline: resBiseccion.x,
+    t_star_poly: resPolinomio ? resPolinomio.x : null,
+    diff_spline_poly: (resBiseccion.x != null && resPolinomio && resPolinomio.x != null) ? Math.abs(resBiseccion.x - resPolinomio.x) : null,
+    diff_spline_analitica: (resBiseccion.x != null && t_analitico != null) ? Math.abs(resBiseccion.x - t_analitico) : null,
+    diff_poly_analitica: (resPolinomio && resPolinomio.x != null && t_analitico != null) ? Math.abs(resPolinomio.x - t_analitico) : null
+  };
+
   return {
     xs, ys, ys_true, noiseArray, n,
     nodos_usados: xs,
@@ -701,7 +786,9 @@ function modInterp(p) {
     subexp_lebesgue,
     sweep: p.skip_sweep ? null : sweepInterpolation(p, p.N_sweep || 24),
     sigma, seed, distrib,
-    grid, fT, fL, fN, fS, f
+    grid, fT, fL, fN, fS, f,
+    S,
+    cruce_umbral
   };
 }
 
@@ -925,7 +1012,8 @@ const FIELDS = {
     { k: 'distrib', l: 'Distribución nodos', t: 'select', o: [['equi', 'Equiespaciados'], ['cheb', 'Chebyshev']] },
     { k: 'sigma', l: 'σ ruido gaussiano' },
     { k: 'seed', l: 'Semilla' },
-    { k: 'M', l: 'M = máx |f⁽ⁿ⁾|' }
+    { k: 'M', l: 'M = máx |f⁽ⁿ⁾|' },
+    { k: 'u', l: 'Umbral u cruce' }
   ]
 };
 const CONTAINER = { m1: 'fm1', m2: 'fm2', m3: 'fm3', m4: 'fm4', mi: 'fmi' };
@@ -956,8 +1044,8 @@ function setForm(key, obj) {
 function applyScenario() { const S = $('scen').value; ['m1', 'm2', 'm3', 'm4', 'mi'].forEach(m => setForm(m, PRE[S][m])); schedule(); }
 function applyPreset(m) { setForm(m, PRE[$('scen').value][m]); schedule(); }
 function presetInterp(i) {
-  if (i === 0) setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 3, k: '[1]', distrib: 'equi', sigma: 0, seed: 2026, M: 1 });
-  else setForm('mi', { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1 });
+  if (i === 0) setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 3, k: '[1]', distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5 });
+  else setForm('mi', { func: 'sin', a: 0, b: 6.283185307179586, n: 12, k: 3, distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5 });
   schedule();
 }
 
@@ -1157,13 +1245,23 @@ function render4(r, ri) {
 
     const hiddenPlot = (ri.puntos_ocultos || []).map(x => ({ x, y: ri.f ? ri.f(x) : Math.sin(x) }));
 
-    chart('c9', 'line', [
+    const cu = ri.cruce_umbral;
+    const uVal = cu ? cu.u : 0.5;
+    const tStar = (cu && cu.biseccion) ? cu.biseccion.x : null;
+
+    const c9Datasets = [
       ds('f(t) exacta', xy(ri.grid, ri.fT), C.O, { bw: 3 }),
       ds('Lagrange', xy(ri.grid, ri.fL), C.R, { dash: [5, 4] }),
       ds('Spline natural', xy(ri.grid, ri.fS), C.G, { dash: [2, 3] }),
       ds('Nodos usados xᵢ', xy(ri.xs, ri.ys), C.W, { line: false, pr: 5, ps: 'rectRot' }),
-      ds('Puntos ocultos x̂ₖ', hiddenPlot, C.Y, { line: false, pr: 6, ps: 'circle' })
-    ], 'Variable t', 'Función f(t)');
+      ds('Puntos ocultos x̂ₖ', hiddenPlot, C.Y, { line: false, pr: 6, ps: 'circle' }),
+      ds(`Umbral u = ${uVal}`, [{ x: ri.grid[0], y: uVal }, { x: ri.grid[ri.grid.length - 1], y: uVal }], '#e0aaff', { dash: [4, 4], bw: 2 })
+    ];
+    if (tStar != null) {
+      c9Datasets.push(ds('Raíz t* (cruce spline)', [{ x: tStar, y: uVal }], '#ff006e', { line: false, pr: 8, ps: 'triangle' }));
+    }
+
+    chart('c9', 'line', c9Datasets, 'Variable t', 'Función f(t)');
 
     if (ri.sweep && $('c12')) {
       const sw = ri.sweep;
@@ -1200,8 +1298,23 @@ function render4(r, ri) {
     extraM4 = `<p class="note"><b>Escenario de Alta Demanda de Datos y Ruido (Estrés - Realización semilla ${ri.seed}):</b> N = ${ri.allNodes.length} nodos con perturbación gaussiana σ = ${fmt(ri.sigma, 3)} (una realización estocástica fija). <i>Hallazgo de condicionamiento:</i> en polinomios globales (Lagrange/Newton), el alto grado en nodos equiespaciados posee una constante de Lebesgue astronómica (Λ₄₀ ≈ 2.41×10⁹), amplificando fuertemente el ruido en errores de orden 10⁷ cerca de los extremos (mal condicionamiento de la base polinomial global). En contraste, el spline natural interpolante pasa por los datos ruidosos, no los filtra; su error queda del orden del ruido (~0.14) porque no lo amplifica. Nótese que el spline no es más preciso en general: en Normal (n=12, σ=0) los polinomios fueron más precisos (1.46e-3 frente a 5.81e-3), mientras que con n=7 ocurrió lo contrario.</p>`;
   }
 
+  let extraRoots = '';
+  if (ri && ri.cruce_umbral) {
+    const cu = ri.cruce_umbral;
+    const b = cu.biseccion, n = cu.newton, s = cu.secante;
+    extraRoots = `<p class="note"><b>Cruce de Umbral (Raíces de S(t) = ${cu.u} con arcsin(u) = ${cu.t_analitico != null ? fmt(cu.t_analitico, 6) : '—'}):</b><br>` +
+      `• <b>Bisección:</b> t* = ${b.x != null ? fmt(b.x, 6) : '—'} (${b.it} iteraciones, residuo = ${sci(b.residual)}, |t* − t*_an| = ${sci(cu.diff_spline_analitica)}).<br>` +
+      `• <b>Newton-Raphson:</b> t* = ${n.x != null ? fmt(n.x, 6) : '—'} (${n.it} iteraciones, residuo = ${sci(n.residual)}, derivada S'(t*) = ${n.hist.length ? fmt(n.hist[n.hist.length - 1].derivada, 4) : '—'}).<br>` +
+      `• <b>Secante:</b> t* = ${s.x != null ? fmt(s.x, 6) : '—'} (${s.it} iteraciones, residuo = ${sci(s.residual)}).<br>` +
+      `• <b>Cruces en la malla:</b> Spline = ${cu.cruces_spline} cruce${cu.cruces_spline === 1 ? '' : 's'} limpio${cu.cruces_spline === 1 ? '' : 's'}, Polinomio = ${cu.cruces_polinomio} cruce${cu.cruces_polinomio === 1 ? '' : 's'}` +
+      (cu.cruces_polinomio > 2 ? ` (<b>alerta:</b> oscilaciones espurias de Runge/Lebesgue generan cruces falsos en bordes)` : '') + `.` +
+      (cu.t_star_poly != null ? `<br>• <b>Comparación Spline vs Polinomio:</b> t*_spline = ${fmt(cu.t_star_spline, 6)} vs t*_poly = ${fmt(cu.t_star_poly, 6)} (|Δ| = ${sci(cu.diff_spline_poly)}).` : '') +
+      `</p>`;
+  }
+
   $('s5').innerHTML = `<p>Ajuste polinómico de grado ${r.n - 1} con ${r.r.length} muestras. La matriz AᵀA tiene κ₂ = ${sci(r.kap)}: un error relativo de 10⁻⁶ en los datos puede amplificarse hasta del orden de κ₂·10⁻⁶ en los coeficientes.</p>
     ${ri ? `<p>Interpolación con ${ri.n} nodos usados y ${ri.k} punto${ri.k === 1 ? '' : 's'} oculto${ri.k === 1 ? '' : 's'} evaluado${ri.k === 1 ? '' : 's'}. Lagrange y Newton representan el mismo polinomio con error máximo ${sci(ri.eL)} y equivalencia numérica |P_L − P_N|_max = ${sci(ri.diffLN)}. El spline cúbico natural obtiene error máximo ${sci(ri.eS)} (RMS = ${sci(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS)}), evitando oscilaciones espurias globales.</p>` : ''}
+    ${extraRoots}
     ${extraM4}
     ${extraSweep}`;
 }
@@ -1626,6 +1739,178 @@ if (typeof document !== 'undefined') {
   });
 }
 
+/* =====================================================================
+   MÉTODOS GENÉRICOS DE BÚSQUEDA DE RAÍCES
+   Bloque dedicado disponible para reutilización intermodular (Gabriel - Módulo 2)
+   ===================================================================== */
+function biseccion(f, a, b, tol = 1e-12, maxIter = 100) {
+  let fa = f(a), fb = f(b);
+  const hist = [];
+  let it = 0;
+  if (!isFinite(fa) || !isFinite(fb)) {
+    return { x: null, it: 0, convergio: false, estado: 'DIVERGIO', aviso: 'Evaluación no finita en extremos', residual: null, hist: [] };
+  }
+  if (Math.abs(fa) < tol) return { x: a, it: 0, convergio: true, estado: 'COMPLETADO', residual: Math.abs(fa), hist: [] };
+  if (Math.abs(fb) < tol) return { x: b, it: 0, convergio: true, estado: 'COMPLETADO', residual: Math.abs(fb), hist: [] };
+  if (fa * fb > 0) {
+    return { x: null, it: 0, convergio: false, estado: 'NO_ALCANZO_TOL', aviso: `Sin cambio de signo en el intervalo [${a}, ${b}]: f(a)=${fa}, f(b)=${fb}`, residual: null, hist: [] };
+  }
+  let m = (a + b) / 2;
+  while ((b - a) / 2 > tol && it < maxIter) {
+    it++;
+    m = (a + b) / 2;
+    const fm = f(m);
+    const errAbs = (b - a) / 2;
+    hist.push({
+      numero: it,
+      a,
+      b,
+      m,
+      t: m,
+      x: m,
+      residual: Math.abs(fm),
+      error_abs: errAbs,
+      error_rel: Math.abs(m) > 1e-12 ? errAbs / Math.abs(m) : errAbs
+    });
+    if (Math.abs(fm) < tol || errAbs < tol) break;
+    if (fa * fm <= 0) {
+      b = m;
+      fb = fm;
+    } else {
+      a = m;
+      fa = fm;
+    }
+  }
+  return {
+    x: m,
+    it,
+    convergio: true,
+    estado: 'COMPLETADO',
+    residual: Math.abs(f(m)),
+    hist
+  };
+}
+
+function newtonRaphson(f, df, x0, tol = 1e-12, maxIter = 100) {
+  let x = x0, it = 0;
+  const hist = [];
+  let estado = 'NO_ALCANZO_TOL';
+  while (it < maxIter) {
+    it++;
+    const fx = f(x), dfx = df(x);
+    if (!isFinite(fx) || !isFinite(dfx)) { estado = 'DIVERGIO'; x = null; break; }
+    if (Math.abs(dfx) < 1e-12) {
+      estado = 'DIVERGIO';
+      hist.push({
+        numero: it,
+        t: x,
+        x,
+        residual: Math.abs(fx),
+        error_abs: null,
+        error_rel: null,
+        derivada: dfx,
+        aviso: 'Derivada casi nula (|f\'(x)| < 1e-12)'
+      });
+      break;
+    }
+    const xNext = x - fx / dfx;
+    const fNext = f(xNext);
+    const errAbs = Math.abs(xNext - x);
+    const residual = Math.abs(fNext);
+    hist.push({
+      numero: it,
+      t: xNext,
+      x: xNext,
+      residual,
+      error_abs: errAbs,
+      error_rel: Math.abs(xNext) > 1e-12 ? errAbs / Math.abs(xNext) : errAbs,
+      derivada: dfx
+    });
+    if (errAbs < tol || residual < tol) {
+      x = xNext;
+      estado = 'COMPLETADO';
+      break;
+    }
+    if (!isFinite(xNext) || Math.abs(xNext) > 1e12) {
+      estado = 'DIVERGIO';
+      x = null;
+      break;
+    }
+    x = xNext;
+  }
+  return {
+    x,
+    it,
+    convergio: estado === 'COMPLETADO',
+    estado,
+    residual: x != null ? Math.abs(f(x)) : null,
+    hist
+  };
+}
+
+function secante(f, x0, x1, tol = 1e-12, maxIter = 100) {
+  let f0 = f(x0), f1 = f(x1);
+  const hist = [];
+  let it = 0, x = x1, estado = 'NO_ALCANZO_TOL';
+  if (!isFinite(f0) || !isFinite(f1)) {
+    return { x: null, it: 0, convergio: false, estado: 'DIVERGIO', aviso: 'Valores iniciales no finitos', residual: null, hist: [] };
+  }
+  while (it < maxIter) {
+    it++;
+    const denom = f1 - f0;
+    if (Math.abs(denom) < 1e-15) {
+      estado = 'DIVERGIO';
+      hist.push({
+        numero: it,
+        x0,
+        x1,
+        t: x,
+        x,
+        residual: Math.abs(f1),
+        error_abs: null,
+        error_rel: null,
+        aviso: 'Denominador casi nulo (división por cero)'
+      });
+      break;
+    }
+    const xNext = x1 - f1 * (x1 - x0) / denom;
+    const fNext = f(xNext);
+    const errAbs = Math.abs(xNext - x1);
+    const residual = Math.abs(fNext);
+    hist.push({
+      numero: it,
+      x0,
+      x1,
+      t: xNext,
+      x: xNext,
+      residual,
+      error_abs: errAbs,
+      error_rel: Math.abs(xNext) > 1e-12 ? errAbs / Math.abs(xNext) : errAbs
+    });
+    if (errAbs < tol || residual < tol) {
+      x = xNext;
+      estado = 'COMPLETADO';
+      break;
+    }
+    if (!isFinite(xNext) || Math.abs(xNext) > 1e12) {
+      estado = 'DIVERGIO';
+      x = null;
+      break;
+    }
+    x0 = x1; f0 = f1;
+    x1 = xNext; f1 = fNext;
+    x = xNext;
+  }
+  return {
+    x,
+    it,
+    convergio: estado === 'COMPLETADO',
+    estado,
+    residual: x != null ? Math.abs(f(x)) : null,
+    hist
+  };
+}
+
 if (typeof window !== 'undefined') {
   window.SYS = SYS;
   window.solverRows = solverRows;
@@ -1640,11 +1925,19 @@ if (typeof window !== 'undefined') {
   window.evalOnPoints = evalOnPoints;
   window.lebesgueConstant = lebesgueConstant;
   window.sweepInterpolation = sweepInterpolation;
+  window.splineNatural = splineNatural;
+  window.splineEval = splineEval;
+  window.splineDeriv = splineDeriv;
+  window.biseccion = biseccion;
+  window.newtonRaphson = newtonRaphson;
+  window.secante = secante;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     SYS, solverRows, PRE, readForm, LAST,
-    mod1, mod2, mod3, mod4, modInterp, evalOnPoints, lebesgueConstant, sweepInterpolation
+    mod1, mod2, mod3, mod4, modInterp, evalOnPoints, lebesgueConstant, sweepInterpolation,
+    splineNatural, splineEval, splineDeriv,
+    biseccion, newtonRaphson, secante
   };
 }
