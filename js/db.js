@@ -695,6 +695,7 @@ PRAGMA user_version = 2;
     isQueryMode = false;
     if (typeof window !== 'undefined') {
       window.IS_QUERY_MODE = false;
+      window.CURRENT_SIMULATION_FROM_DB = null;
     }
 
     if (typeof document !== 'undefined') {
@@ -722,6 +723,10 @@ PRAGMA user_version = 2;
   function renderSimulationFromDB(loaded) {
     if (typeof document === 'undefined') return;
 
+    if (typeof window !== 'undefined') {
+      window.CURRENT_SIMULATION_FROM_DB = loaded;
+    }
+
     const { simulacion, escenario, ejecuciones } = loaded;
     const fmt = (typeof window.fmt === 'function') ? window.fmt : (x, d=2) => (x == null ? '—' : Number(x).toFixed(d));
     const sci = (typeof window.sci === 'function') ? window.sci : (x, d=2) => (x == null ? '—' : Number(x).toExponential(d));
@@ -730,6 +735,7 @@ PRAGMA user_version = 2;
     const ds = (typeof window.ds === 'function') ? window.ds : (l, data, color, o={}) => ({ label: l, data, borderColor: color, ...o });
     const C = window.C || { O: '#ff7a00', O2: '#ffa53d', W: '#f4f4f4', Y: '#ffd166', R: '#ff3b3b', G: '#7ee787', GR: '#9a9a9a' };
     const chart = (typeof window.chart === 'function') ? window.chart : () => {};
+    const tbl = (typeof window.tbl === 'function') ? window.tbl : (h, rows) => '<table><thead><tr>' + h.map(x => '<th>' + x + '</th>').join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
 
     // 1. Extraer resúmenes de cada ejecución por familia
     let r1Val = {}, r2Val = {}, r3Val = {}, r4Val = {};
@@ -952,12 +958,72 @@ PRAGMA user_version = 2;
         if (sSpl) ds9.push(ds('Spline Cúbico Natural', sSpl.pts, C.O, { bw: 2 }));
         if (sLag) ds9.push(ds('Polinomio de Lagrange', sLag.pts, C.Y, { bw: 2 }));
         if (sNew) ds9.push(ds('Newton Diferencias Divididas', sNew.pts, C.G, { bw: 1.5, dash: [2, 2] }));
-        if (sNod) ds9.push(ds('Nodos usados', sNod.pts, C.O, { bw: 0, pr: 5, ps: 'circle', line: false }));
-        if (sOcu) ds9.push(ds('Puntos ocultos', sOcu.pts, C.R, { bw: 0, pr: 6, ps: 'triangle', line: false }));
+        if (sNod) ds9.push(ds('Nodos usados', sNod.pts, C.W, { bw: 0, pr: 5, ps: 'rectRot', line: false }));
+        if (sOcu) ds9.push(ds('Puntos ocultos', sOcu.pts, C.Y, { bw: 0, pr: 6, ps: 'circle', line: false }));
+
+        const maxPolyY = Math.max(
+          ...(sLag ? sLag.pts.map(p => Math.abs(p.y)) : [0]),
+          ...(sNew ? sNew.pts.map(p => Math.abs(p.y)) : [0])
+        );
+        const isStres = (escenario && (escenario.tipo === 'ESTRES' || escenario.tipo === 'E')) || maxPolyY > 10;
+        const c9Opts = {};
+        if (isStres) {
+          c9Opts.yMin = -2.5;
+          c9Opts.yMax = 2.5;
+        }
 
         if (ds9.length > 0) {
-          chart('c9', 'line', ds9, 'Variable t', 'Función f(t)');
+          chart('c9', 'line', ds9, 'Variable t', 'Función f(t)', c9Opts);
         }
+
+        const noteEl = document.getElementById('c9Note');
+        if (noteEl) {
+          if (isStres) {
+            noteEl.style.display = 'block';
+            noteEl.innerHTML = `⚠️ <b>Nota en gráfico (Escenario Estrés):</b> Eje vertical limitado a [-2.5, 2.5] para permitir la visualización de la señal f(t) y del spline natural. Los polinomios globales (Lagrange/Newton) oscilan con amplitudes extremas de orden ~10⁷ en los bordes debido al mal condicionamiento de base global (Λ₄₀ ≈ 2.41×10⁹) ante ruido sensorial en nodos equiespaciados.`;
+          } else {
+            noteEl.style.display = 'none';
+            noteEl.innerHTML = '';
+          }
+        }
+
+        // c13: Error de reconstrucción por punto y por método
+        function renderM4ErrorChartFromDB(ejecList, isLog) {
+          if (!document.getElementById('c13')) return;
+          const clampLog = v => isLog ? Math.max(v, 1e-16) : v;
+          const ejS = (ejecList || []).find(e => e.metodo && e.metodo.includes('Spline'));
+          const ejL = (ejecList || []).find(e => e.metodo && e.metodo.includes('Lagrange'));
+          const ejN = (ejecList || []).find(e => e.metodo && e.metodo.includes('Newton'));
+
+          const getPts = (ej) => {
+            if (!ej) return [];
+            const s = (ej.series || []).find(item => item.nombre === 'M4_error_por_punto');
+            if (s && s.datos_json) {
+              try {
+                const pts = JSON.parse(s.datos_json);
+                return pts.map(p => ({ x: p.x, y: clampLog(p.y) }));
+              } catch (e) {}
+            }
+            return [];
+          };
+
+          const ptsS = getPts(ejS);
+          const ptsL = getPts(ejL);
+          const ptsN = getPts(ejN);
+
+          if (ptsS.length || ptsL.length || ptsN.length) {
+            const dsError = [];
+            if (ptsS.length) dsError.push(ds('Error Spline natural', ptsS, C.G, { bw: 0, pr: 6, ps: 'circle', line: false }));
+            if (ptsL.length) dsError.push(ds('Error Lagrange', ptsL, C.R, { bw: 0, pr: 6, ps: 'triangle', line: false }));
+            if (ptsN.length) dsError.push(ds('Error Newton DD', ptsN, C.Y, { bw: 0, pr: 6, ps: 'rectRot', line: false }));
+
+            const yLabel = isLog ? 'Error absoluto |f(x̂) − P(x̂)| (Escala logarítmica)' : 'Error absoluto |f(x̂) − P(x̂)|';
+            chart('c13', 'line', dsError, 'Punto oculto evaluado x̂', yLabel, { yType: isLog ? 'logarithmic' : 'linear' });
+          }
+        }
+        if (typeof window !== 'undefined') window.renderM4ErrorChartFromDB = renderM4ErrorChartFromDB;
+        const isLogErr = document.getElementById('m4ErrorLogScale') ? document.getElementById('m4ErrorLogScale').checked : false;
+        renderM4ErrorChartFromDB(ejecuciones, isLogErr);
 
         // c12: Barrido de convergencia / error
         const ds12 = [];
@@ -965,14 +1031,206 @@ PRAGMA user_version = 2;
         const sSwLag = getSeriesData('M4_barrido_error_equi_lagrange', 'barrido_error_equi_lagrange');
         const sSwChebS = getSeriesData('M4_barrido_error_cheb_spline', 'barrido_error_cheb_spline');
         const sSwChebL = getSeriesData('M4_barrido_error_cheb_lagrange', 'barrido_error_cheb_lagrange');
+        const sSwLebE = getSeriesData('M4_barrido_lebesgue_equi', 'barrido_lebesgue_equi');
+        const sSwLebC = getSeriesData('M4_barrido_lebesgue_cheb', 'barrido_lebesgue_cheb');
+        const sSwRuidL = getSeriesData('M4_barrido_ruido_media_lagrange', 'barrido_ruido_media_lagrange');
+        const sSwRuidS = getSeriesData('M4_barrido_ruido_media_spline', 'barrido_ruido_media_spline');
 
-        if (sSwSpl) ds12.push(ds('Spline (Equi)', sSwSpl.pts, C.O, { bw: 2 }));
-        if (sSwLag) ds12.push(ds('Lagrange (Equi)', sSwLag.pts, C.Y, { bw: 2 }));
-        if (sSwChebS) ds12.push(ds('Spline (Chebyshev)', sSwChebS.pts, C.G, { bw: 2, dash: [4, 4] }));
-        if (sSwChebL) ds12.push(ds('Lagrange (Chebyshev)', sSwChebL.pts, C.W, { bw: 2, dash: [4, 4] }));
+        const clampLog = pts => (pts || []).map(p => ({ x: p.x, y: Math.max(p.y, 1e-16) }));
+        const isVal = p => p.x >= 8;
+        const isSub = p => p.x < 8;
+
+        if (sSwLag) ds12.push(ds('Lagrange (Equi, n ≥ 8)', clampLog(sSwLag.pts.filter(isVal)), C.Y, { bw: 2 }));
+        if (sSwSpl) ds12.push(ds('Spline (Equi, n ≥ 8)', clampLog(sSwSpl.pts.filter(isVal)), C.O, { bw: 2 }));
+        if (sSwChebL) ds12.push(ds('Lagrange (Chebyshev, n ≥ 8)', clampLog(sSwChebL.pts.filter(isVal)), C.W, { bw: 2, dash: [4, 4] }));
+        if (sSwChebS) ds12.push(ds('Spline (Chebyshev, n ≥ 8)', clampLog(sSwChebS.pts.filter(isVal)), C.G, { bw: 2, dash: [4, 4] }));
+        if (sSwRuidL) ds12.push(ds('Lagrange σ=0.05 (media, n ≥ 8)', clampLog(sSwRuidL.pts.filter(isVal)), C.R, { dash: [3, 3] }));
+        if (sSwRuidS) ds12.push(ds('Spline σ=0.05 (media, n ≥ 8)', clampLog(sSwRuidS.pts.filter(isVal)), '#48cae4', { dash: [2, 2] }));
+        if (sSwLebE) ds12.push(ds('Constante Lebesgue Λ_equi', clampLog(sSwLebE.pts), C.GR, { dash: [3, 3] }));
+        if (sSwLebC) ds12.push(ds('Constante Lebesgue Λ_cheb', clampLog(sSwLebC.pts), '#00b4d8', { dash: [1, 2] }));
+
+        const subPts = (sSwLag ? sSwLag.pts.filter(isSub) : []).concat(sSwSpl ? sSwSpl.pts.filter(isSub) : []);
+        if (subPts.length > 0) {
+          ds12.push(ds('Submuestreado n < 8 (no válido, n_usados < 4)', clampLog(subPts), '#ff4444', { line: false, pr: 7, ps: 'crossRot' }));
+        }
 
         if (ds12.length > 0) {
-          chart('c12', 'line', ds12, 'Número de nodos n', 'Error máximo en malla densa', { yType: 'logarithmic' });
+          chart('c12', 'line', ds12, 'Número de nodos n', 'Error máx denso / Constante Lebesgue Λ (Escala logarítmica)', { yType: 'logarithmic' });
+        }
+
+        // --- RENDERIZADO DE TABLAS DE MÓDULO 4 DESDE SQLITE ---
+        const ejSpline = ejecuciones.find(e => e.metodo && e.metodo.includes('Spline'));
+        const ejLag = ejecuciones.find(e => e.metodo && e.metodo.includes('Lagrange'));
+        const ejNew = ejecuciones.find(e => e.metodo && e.metodo.includes('Newton'));
+        const ejBis = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Bisección');
+        const ejNwtR = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Newton-Raphson');
+        const ejSec = ejecuciones.find(e => e.familia === 'RAICES' && e.metodo === 'Secante');
+
+        const getSummary = (ej) => {
+          if (!ej || !ej.resumen || !ej.resumen.valor_json) return {};
+          try { return JSON.parse(ej.resumen.valor_json); } catch (e) { return {}; }
+        };
+
+        // 1. Tabla t4: Coeficientes estimados
+        const t4El = document.getElementById('t4');
+        if (t4El && r4Val) {
+          const x0 = r4Val.x0 || [];
+          const xref = r4Val.xref || r4Val.coefs || [];
+          if (x0.length > 0 || xref.length > 0) {
+            const nRows = Math.max(x0.length, xref.length);
+            const rowsT4 = [];
+            for (let j = 0; j < nRows; j++) {
+              const v = x0[j];
+              const c = xref[j];
+              const diff = (v != null && c != null) ? Math.abs(c - v) : null;
+              rowsT4.push([String(j), v != null ? fmt(v, 6) : '—', c != null ? fmt(c, 6) : '—', diff != null ? sci(diff) : '—']);
+            }
+            t4El.innerHTML = tbl(['j', 'x* (verdadero)', 'x̂ (mínimos cuadrados)', '|x̂ − x*|'], rowsT4);
+          }
+        }
+
+        // 2. Tabla t5: Resumen de interpolación por método
+        const t5El = document.getElementById('t5');
+        if (t5El && (ejSpline || ejLag || ejNew)) {
+          const valS = getSummary(ejSpline);
+          const valL = getSummary(ejLag);
+          const valN = getSummary(ejNew);
+          const worstStr = p => p ? `${fmt(p.x, 3)} (${sci(p.error_abs)})` : '—';
+          t5El.innerHTML = tbl(['Método', 'Error Máximo', 'Error RMS', 'Peor punto x̂ (|error|)', 'Cota teórica máx'], [
+            ['Lagrange', sci(valL.error_maximo), sci(valL.error_rms), worstStr(valL.peor_punto), sci(valL.cota_teorica)],
+            ['Newton (diferencias divididas)', sci(valN.error_maximo), sci(valN.error_rms), worstStr(valN.peor_punto), sci(valN.cota_teorica)],
+            ['Spline cúbico natural', sci(valS.error_maximo), sci(valS.error_rms), worstStr(valS.peor_punto), 'No aplica directamente']
+          ]);
+        }
+
+        // 3. Tabla t5_dd: Diferencias divididas de Newton (triangular)
+        const t5ddEl = document.getElementById('t5_dd');
+        if (t5ddEl && ejNew && ejNew.iteraciones && ejNew.iteraciones.length > 0) {
+          const tableDD = ejNew.iteraciones.map(it => {
+            try {
+              const obj = JSON.parse(it.aproximacion_json);
+              return obj.diferencias || [];
+            } catch (e) { return []; }
+          });
+          const xs = sNod ? sNod.pts.map(p => p.x) : [];
+          const nRows = tableDD[0] ? tableDD[0].length : 0;
+          const headers = ['i', 'xᵢ', 'f[xᵢ]'];
+          for (let k = 1; k < tableDD.length; k++) headers.push(`f[·] (${k}º)`);
+          const rowsDD = [];
+          for (let i = 0; i < nRows; i++) {
+            const row = [String(i), (xs[i] != null ? fmt(xs[i], 4) : '—'), (tableDD[0] && tableDD[0][i] != null ? fmt(tableDD[0][i], 4) : '—')];
+            for (let k = 1; k < tableDD.length; k++) {
+              if (tableDD[k] && i < tableDD[k].length) {
+                row.push(sci(tableDD[k][i], 3));
+              } else {
+                row.push('—');
+              }
+            }
+            rowsDD.push(row);
+          }
+          const coefs = ejNew.iteraciones.map(it => {
+            try { return JSON.parse(it.aproximacion_json).coef; } catch(e) { return null; }
+          }).filter(c => c != null);
+          t5ddEl.innerHTML = tbl(headers, rowsDD) +
+            `<p class="note" style="margin-top:6px"><b>Polinomio en forma de Newton (leído de SQLite):</b> Coeficientes cₖ en diagonal superior: [${coefs.map(c => sci(c, 3)).join(', ')}].</p>`;
+        }
+
+        // 4. Tabla t5_ocultos: Evaluación en puntos ocultos
+        const t5ocEl = document.getElementById('t5_ocultos');
+        if (t5ocEl) {
+          const getPtsVal = (ej) => {
+            if (!ej || !ej.resumen || !ej.resumen.valor_json) return [];
+            try {
+              const obj = JSON.parse(ej.resumen.valor_json);
+              return obj.puntos_ocultos_evaluados || [];
+            } catch(e) { return []; }
+          };
+          const ptsL = getPtsVal(ejLag);
+          const ptsN = getPtsVal(ejNew);
+          const ptsS = getPtsVal(ejSpline);
+          if (ptsL.length > 0) {
+            const headersOcu = ['k', 'Punto oculto x̂ₖ', 'f(x̂ₖ) Exacto', 'P_L(x̂)', 'Error |P_L − f|', 'P_N(x̂)', 'Error |P_N − f|', 'S(x̂)', 'Error |S − f|', 'Error Rel S (%)'];
+            const rowsOcu = ptsL.map((p, k) => {
+              const pN = ptsN[k] || {};
+              const pS = ptsS[k] || {};
+              const exact = p.y_true;
+              const relS = exact !== 0 && pS.error_abs != null ? (pS.error_abs / Math.abs(exact) * 100) : 0;
+              return [
+                String(k + 1),
+                fmt(p.x, 4),
+                fmt(exact, 5),
+                fmt(p.y_approx, 5),
+                sci(p.error_abs, 3),
+                fmt(pN.y_approx, 5),
+                sci(pN.error_abs, 3),
+                fmt(pS.y_approx, 5),
+                sci(pS.error_abs, 3),
+                fmt(relS, 2) + '%'
+              ];
+            });
+            const valS = getSummary(ejSpline);
+            const valL = getSummary(ejLag);
+            const valN = getSummary(ejNew);
+            rowsOcu.push([
+              '—', 'Máx / RMS', '—',
+              '—', `${sci(valL.error_maximo, 2)} / ${sci(valL.error_rms, 2)}`,
+              '—', `${sci(valN.error_maximo, 2)} / ${sci(valN.error_rms, 2)}`,
+              '—', `${sci(valS.error_maximo, 2)} / ${sci(valS.error_rms, 2)}`,
+              '—'
+            ]);
+            t5ocEl.innerHTML = tbl(headersOcu, rowsOcu);
+          }
+        }
+
+        // 5. Tabla t5_raices: Cruce de umbral
+        const t5rEl = document.getElementById('t5_raices');
+        if (t5rEl && (ejBis || ejNwtR || ejSec)) {
+          const valB = getSummary(ejBis);
+          const valN = getSummary(ejNwtR);
+          const valS = getSummary(ejSec);
+          const tAn = valB.t_analitico || valN.t_analitico || valS.t_analitico;
+          const uVal = valB.umbral_u || 0.5;
+
+          const headersRoots = ['Método de Raíces', 'Iteraciones', 'Raíz t* (S(t)=u)', 'Residuo |S(t*) − u|', 'Error |t* − t*_an|', 'Tasa / Orden'];
+          const rowsRoots = [
+            ['Bisección', String(valB.iteraciones ?? (ejBis.iteraciones ? ejBis.iteraciones.length : '—')), valB.t_star != null ? fmt(valB.t_star, 6) : '—', sci(valB.residual, 2), sci(valB.error_vs_analitica, 2), 'Lineal (p = 1)'],
+            ['Newton-Raphson', String(valN.iteraciones ?? (ejNwtR.iteraciones ? ejNwtR.iteraciones.length : '—')), valN.t_star != null ? fmt(valN.t_star, 6) : '—', sci(valN.residual, 2), sci(valN.error_vs_analitica, 2), 'Cuadrática (p = 2)'],
+            ['Secante', String(valS.iteraciones ?? (ejSec.iteraciones ? ejSec.iteraciones.length : '—')), valS.t_star != null ? fmt(valS.t_star, 6) : '—', sci(valS.residual, 2), sci(valS.error_vs_analitica, 2), 'Superlineal (p ≈ 1.62)']
+          ];
+          t5rEl.innerHTML = tbl(headersRoots, rowsRoots) +
+            `<p class="note" style="margin-top:6px">Umbral u = ${uVal}, t*_analítico = ${tAn != null ? fmt(tAn, 6) : '—'} (arcsin(u)). Datos leídos de SQLite (familia RAICES).</p>`;
+        }
+
+        // 6. Tabla t5_escenarios: Comparativa multidimensional
+        const t5escEl = document.getElementById('t5_escenarios');
+        if (t5escEl) {
+          const scenActivo = escenario ? escenario.tipo : 'NORMAL';
+          const headersEsc = ['Escenario', 'Nodos (Usados/Ocultos)', 'Distribución', 'Ruido σ (Semilla)', 'Lebesgue Λ_N', 'Error Máx Spline', 'Error Máx Polinomio', 'Amplificación', 'Diagnóstico'];
+          const isNorm = scenActivo === 'NORMAL' || scenActivo === 'N';
+          const isEstr = scenActivo === 'ESTRES' || scenActivo === 'E';
+          const isMal = scenActivo === 'MAL_CONDICIONADO' || scenActivo === 'MC';
+
+          const rowsEsc = [
+            [
+              (isNorm ? '<b>● NORMAL (Cargado)</b>' : 'NORMAL'),
+              '12 (9 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0',
+              'Λ₁₂ ≈ 42.6 (Λ_usados ≈ 13.9)', '5.81×10⁻³', '1.46×10⁻³', '1.0× (Sin ruido)',
+              'Polinomio más preciso por analiticidad de sin(t); ambos estables'
+            ],
+            [
+              (isEstr ? '<b>● ESTRÉS (Cargado)</b>' : 'ESTRÉS'),
+              '40 (37 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0.05 (sem. 2026)',
+              'Λ₄₀ ≈ 2.41×10⁹ (Cheb: 3.47)', '0.141 (~3σ)', '1.52×10⁷', '~10⁸× (Catastrófica)',
+              'Divergencia en bordes por explosión de Λ_N; Spline no amplifica ruido'
+            ],
+            [
+              (isMal ? '<b>● MAL CONDICIONADO (Cargado)</b>' : 'MAL CONDICIONADO'),
+              '21 (18 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0 (ε = 10⁻⁴)',
+              'Λ₂₁ ≈ 1.94×10⁴ (Cheb: 2.87)', '6.25×10⁻⁴', '4.41×10⁻⁴ (nominal)', '2450× (Hipersensible)',
+              'Base polinomial global hipersensible a perturbaciones; spline recomendado'
+            ]
+          ];
+          t5escEl.innerHTML = tbl(headersEsc, rowsEsc);
         }
       }
 

@@ -992,11 +992,20 @@ function sysFor(key) {
 const C = { O: '#ff7a00', O2: '#ffa53d', OD: '#d85f00', W: '#f4f4f4', Y: '#ffd166', R: '#ff3b3b', G: '#7ee787', GR: '#9a9a9a' };
 const charts = {};
 function chart(id, type, datasets, xl, yl, o = {}) {
-  const light = !!$(id).closest('.light,.light2');
+  const el = $(id);
+  if (!el) return;
+  const light = !!el.closest('.light,.light2');
   const tc = light ? '#2a2a2a' : '#e8e8e8', gc = light ? 'rgba(0,0,0,.1)' : 'rgba(255,255,255,.09)';
   if (charts[id]) charts[id].destroy();
-  const ax = (t, ti) => ({ type: t || 'linear', title: { display: true, text: ti, color: tc }, ticks: { color: tc }, grid: { color: gc } });
-  charts[id] = new Chart($(id), {
+  const ax = (t, ti, min, max, sMin, sMax) => {
+    const scale = { type: t || 'linear', title: { display: true, text: ti, color: tc }, ticks: { color: tc }, grid: { color: gc } };
+    if (min !== undefined) scale.min = min;
+    if (max !== undefined) scale.max = max;
+    if (sMin !== undefined) scale.suggestedMin = sMin;
+    if (sMax !== undefined) scale.suggestedMax = sMax;
+    return scale;
+  };
+  charts[id] = new Chart(el, {
     type, data: { labels: o.labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
@@ -1005,7 +1014,10 @@ function chart(id, type, datasets, xl, yl, o = {}) {
         legend: { labels: { color: tc, usePointStyle: true } },
         tooltip: { backgroundColor: '#000', titleColor: '#ffa53d', borderColor: '#ff7a00', borderWidth: 1 }
       },
-      scales: { x: ax(o.xType, xl), y: ax(o.yType, yl) }
+      scales: {
+        x: ax(o.xType, xl, o.xMin, o.xMax, o.xSuggestedMin, o.xSuggestedMax),
+        y: ax(o.yType, yl, o.yMin, o.yMax, o.ySuggestedMin, o.ySuggestedMax)
+      }
     }
   });
 }
@@ -1291,20 +1303,178 @@ function render4(r, ri) {
       c9Datasets.push(ds('Raíz t* (cruce spline)', [{ x: tStar, y: uVal }], '#ff006e', { line: false, pr: 8, ps: 'triangle' }));
     }
 
-    chart('c9', 'line', c9Datasets, 'Variable t', 'Función f(t)');
+    const maxPolyY = Math.max(
+      ...(ri.fL || []).map(Math.abs),
+      ...(ri.fN || []).map(Math.abs)
+    );
+    const isStres = (ri.sigma > 0 || ri.escenario === 'ESTRES' || ri.escenario === 'E' || maxPolyY > 10);
+    const c9Opts = {};
+    if (isStres) {
+      c9Opts.yMin = -2.5;
+      c9Opts.yMax = 2.5;
+    }
+
+    chart('c9', 'line', c9Datasets, 'Variable t', 'Función f(t)', c9Opts);
+
+    const noteEl = $('c9Note');
+    if (noteEl) {
+      if (isStres) {
+        noteEl.style.display = 'block';
+        noteEl.innerHTML = `⚠️ <b>Nota en gráfico (Escenario Estrés):</b> Eje vertical limitado a [-2.5, 2.5] para permitir la visualización de la señal f(t) y del spline natural. Los polinomios globales (Lagrange/Newton) oscilan con amplitudes extremas de orden ~10⁷ en los bordes debido al mal condicionamiento de base global (Λ₄₀ ≈ 2.41×10⁹) ante ruido sensorial en nodos equiespaciados.`;
+      } else {
+        noteEl.style.display = 'none';
+        noteEl.innerHTML = '';
+      }
+    }
+
+    // Gráfico 2: Error por punto oculto y por método (c13)
+    function renderM4ErrorChart(riData, isLog) {
+      if (!$('c13')) return;
+      const clampLog = v => isLog ? Math.max(v, 1e-16) : v;
+      const ptsS = (riData.eval_spline?.puntos || []).map(p => ({ x: p.x, y: clampLog(p.error_abs) }));
+      const ptsL = (riData.eval_lagrange?.puntos || []).map(p => ({ x: p.x, y: clampLog(p.error_abs) }));
+      const ptsN = (riData.eval_newton?.puntos || []).map(p => ({ x: p.x, y: clampLog(p.error_abs) }));
+
+      const dsError = [];
+      if (ptsS.length) dsError.push(ds('Error Spline natural', ptsS, C.G, { bw: 0, pr: 6, ps: 'circle', line: false }));
+      if (ptsL.length) dsError.push(ds('Error Lagrange', ptsL, C.R, { bw: 0, pr: 6, ps: 'triangle', line: false }));
+      if (ptsN.length) dsError.push(ds('Error Newton DD', ptsN, C.Y, { bw: 0, pr: 6, ps: 'rectRot', line: false }));
+
+      const yLabel = isLog ? 'Error absoluto |f(x̂) − P(x̂)| (Escala logarítmica)' : 'Error absoluto |f(x̂) − P(x̂)|';
+      chart('c13', 'line', dsError, 'Punto oculto evaluado x̂', yLabel, { yType: isLog ? 'logarithmic' : 'linear' });
+    }
+    const isLogErr = $('m4ErrorLogScale') ? $('m4ErrorLogScale').checked : false;
+    renderM4ErrorChart(ri, isLogErr);
 
     if (ri.sweep && $('c12')) {
       const sw = ri.sweep;
       const clampLog = pts => (pts || []).map(p => ({ x: p.x, y: Math.max(p.y, 1e-16) }));
+      const isVal = p => p.x >= 8;
+      const isSub = p => p.x < 8;
+
+      const subLag = (sw.series.M4_barrido_error_equi_lagrange || []).filter(isSub);
+      const subSpl = (sw.series.M4_barrido_error_equi_spline || []).filter(isSub);
+
       chart('c12', 'line', [
-        ds('Equiespaciado σ=0 (Lagrange)', clampLog(sw.series.M4_barrido_error_equi_lagrange), C.R, { dash: [5, 4] }),
-        ds('Chebyshev σ=0 (Lagrange)', clampLog(sw.series.M4_barrido_error_cheb_lagrange), C.O, { bw: 2 }),
-        ds('Spline natural σ=0', clampLog(sw.series.M4_barrido_error_equi_spline), C.G, { bw: 3 }),
-        ds('Lagrange σ=0.05 (media 5 sem.)', clampLog(sw.series.M4_barrido_ruido_media_lagrange), C.Y, { dash: [3, 3] }),
-        ds('Spline σ=0.05 (media 5 sem.)', clampLog(sw.series.M4_barrido_ruido_media_spline), '#48cae4', { dash: [2, 2] }),
+        ds('Equiespaciado σ=0 (Lagrange, n ≥ 8)', clampLog((sw.series.M4_barrido_error_equi_lagrange || []).filter(isVal)), C.R, { dash: [5, 4] }),
+        ds('Chebyshev σ=0 (Lagrange, n ≥ 8)', clampLog((sw.series.M4_barrido_error_cheb_lagrange || []).filter(isVal)), C.O, { bw: 2 }),
+        ds('Spline natural σ=0 (n ≥ 8)', clampLog((sw.series.M4_barrido_error_equi_spline || []).filter(isVal)), C.G, { bw: 3 }),
+        ds('Lagrange σ=0.05 (media, n ≥ 8)', clampLog((sw.series.M4_barrido_ruido_media_lagrange || []).filter(isVal)), C.Y, { dash: [3, 3] }),
+        ds('Spline σ=0.05 (media, n ≥ 8)', clampLog((sw.series.M4_barrido_ruido_media_spline || []).filter(isVal)), '#48cae4', { dash: [2, 2] }),
         ds('Constante Lebesgue Λ_equi', clampLog(sw.series.M4_barrido_lebesgue_equi), C.GR, { dash: [4, 4] }),
-        ds('Constante Lebesgue Λ_cheb', clampLog(sw.series.M4_barrido_lebesgue_cheb), C.W, { dash: [1, 2] })
+        ds('Constante Lebesgue Λ_cheb', clampLog(sw.series.M4_barrido_lebesgue_cheb), C.W, { dash: [1, 2] }),
+        ds('Submuestreado n < 8 (no válido, n_usados < 4)', clampLog(subLag.concat(subSpl)), '#ff4444', { line: false, pr: 7, ps: 'crossRot' })
       ], 'Número de nodos n', 'Error máx denso / Constante Lebesgue Λ (Escala logarítmica)', { yType: 'logarithmic' });
+    }
+
+    // Tabla 1: Diferencias divididas de Newton (triangular)
+    if ($('t5_dd') && ri.tableDD) {
+      const tableDD = ri.tableDD;
+      const xs = ri.xs || [];
+      const nRows = xs.length;
+      const headers = ['i', 'xᵢ', 'f[xᵢ]'];
+      for (let k = 1; k < tableDD.length; k++) headers.push(`f[·] (${k}º)`);
+      const rowsDD = [];
+      for (let i = 0; i < nRows; i++) {
+        const row = [String(i), fmt(xs[i], 4), fmt(tableDD[0][i], 4)];
+        for (let k = 1; k < tableDD.length; k++) {
+          if (i < tableDD[k].length) {
+            row.push(sci(tableDD[k][i], 3));
+          } else {
+            row.push('—');
+          }
+        }
+        rowsDD.push(row);
+      }
+      $('t5_dd').innerHTML = tbl(headers, rowsDD) +
+        `<p class="note" style="margin-top:6px"><b>Polinomio en forma de Newton:</b> Coeficientes cₖ en diagonal superior: [${(ri.cN || []).map(c => sci(c, 3)).join(', ')}].</p>`;
+    }
+
+    // Tabla 2: Evaluación en puntos ocultos
+    if ($('t5_ocultos') && ri.eval_lagrange && ri.eval_newton && ri.eval_spline) {
+      const ptsL = ri.eval_lagrange.puntos || [];
+      const ptsN = ri.eval_newton.puntos || [];
+      const ptsS = ri.eval_spline.puntos || [];
+      const headersOcu = ['k', 'Punto oculto x̂ₖ', 'f(x̂ₖ) Exacto', 'P_L(x̂)', 'Error |P_L − f|', 'P_N(x̂)', 'Error |P_N − f|', 'S(x̂)', 'Error |S − f|', 'Error Rel S (%)'];
+      const rowsOcu = ptsL.map((p, k) => {
+        const pN = ptsN[k] || {};
+        const pS = ptsS[k] || {};
+        const exact = p.y_true;
+        const relS = exact !== 0 && pS.error_abs != null ? (pS.error_abs / Math.abs(exact) * 100) : 0;
+        return [
+          String(k + 1),
+          fmt(p.x, 4),
+          fmt(exact, 5),
+          fmt(p.y_approx, 5),
+          sci(p.error_abs, 3),
+          fmt(pN.y_approx, 5),
+          sci(pN.error_abs, 3),
+          fmt(pS.y_approx, 5),
+          sci(pS.error_abs, 3),
+          fmt(relS, 2) + '%'
+        ];
+      });
+      rowsOcu.push([
+        '—', 'Máx / RMS', '—',
+        '—', `${sci(ri.eval_lagrange.error_maximo, 2)} / ${sci(ri.eval_lagrange.error_rms, 2)}`,
+        '—', `${sci(ri.eval_newton.error_maximo, 2)} / ${sci(ri.eval_newton.error_rms, 2)}`,
+        '—', `${sci(ri.eval_spline.error_maximo, 2)} / ${sci(ri.eval_spline.error_rms, 2)}`,
+        '—'
+      ]);
+      $('t5_ocultos').innerHTML = tbl(headersOcu, rowsOcu);
+    }
+
+    // Tabla 3: Iteraciones del cruce de umbral (S(t) = u)
+    if ($('t5_raices') && ri.cruce_umbral) {
+      const cu = ri.cruce_umbral;
+      const b = cu.biseccion || {};
+      const n = cu.newton || {};
+      const s = cu.secante || {};
+      const tAn = cu.t_analitico;
+      const errB = (tAn != null && b.x != null) ? Math.abs(b.x - tAn) : null;
+      const errN = (tAn != null && n.x != null) ? Math.abs(n.x - tAn) : null;
+      const errS = (tAn != null && s.x != null) ? Math.abs(s.x - tAn) : null;
+
+      const headersRoots = ['Método de Raíces', 'Iteraciones', 'Raíz t* (S(t)=u)', 'Residuo |S(t*) − u|', 'Error |t* − t*_an|', 'Tasa / Orden'];
+      const rowsRoots = [
+        ['Bisección', String(b.it ?? '—'), b.x != null ? fmt(b.x, 6) : '—', sci(b.residual, 2), sci(errB, 2), 'Lineal (p = 1)'],
+        ['Newton-Raphson', String(n.it ?? '—'), n.x != null ? fmt(n.x, 6) : '—', sci(n.residual, 2), sci(errN, 2), 'Cuadrática (p = 2)'],
+        ['Secante', String(s.it ?? '—'), s.x != null ? fmt(s.x, 6) : '—', sci(s.residual, 2), sci(errS, 2), 'Superlineal (p ≈ 1.62)']
+      ];
+      $('t5_raices').innerHTML = tbl(headersRoots, rowsRoots) +
+        `<p class="note" style="margin-top:6px">Umbral u = ${cu.u}, t*_analítico = ${tAn != null ? fmt(tAn, 6) : '—'} (arcsin(u)). Cruces de umbral en la malla: Spline = ${cu.cruces_spline}, Polinomio = ${cu.cruces_polinomio}.</p>`;
+    }
+
+    // Tabla 4: Comparativa de escenarios
+    if ($('t5_escenarios')) {
+      const scenActivo = ri.escenario || (ri.sigma > 0 ? 'ESTRES' : (ri.subexp_lebesgue && ri.subexp_lebesgue.n_total === 21 ? 'MAL_CONDICIONADO' : 'NORMAL'));
+      const sl = ri.subexp_lebesgue;
+      const headersEsc = ['Escenario', 'Nodos (Usados/Ocultos)', 'Distribución', 'Ruido σ (Semilla)', 'Lebesgue Λ_N', 'Error Máx Spline', 'Error Máx Polinomio', 'Amplificación', 'Diagnóstico'];
+      const isNorm = scenActivo === 'NORMAL' || scenActivo === 'N';
+      const isEstr = scenActivo === 'ESTRES' || scenActivo === 'E';
+      const isMal = scenActivo === 'MAL_CONDICIONADO' || scenActivo === 'MC';
+
+      const rowsEsc = [
+        [
+          (isNorm ? '<b>● NORMAL (Activo)</b>' : 'NORMAL'),
+          '12 (9 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0',
+          'Λ₁₂ ≈ 42.6 (Λ_usados ≈ 13.9)', '5.81×10⁻³', '1.46×10⁻³', '1.0× (Sin ruido)',
+          'Polinomio más preciso por analiticidad de sin(t); ambos estables'
+        ],
+        [
+          (isEstr ? '<b>● ESTRÉS (Activo)</b>' : 'ESTRÉS'),
+          '40 (37 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0.05 (sem. 2026)',
+          'Λ₄₀ ≈ 2.41×10⁹ (Cheb: 3.47)', '0.141 (~3σ)', '1.52×10⁷', '~10⁸× (Catastrófica)',
+          'Divergencia en bordes por explosión de Λ_N; Spline no amplifica ruido'
+        ],
+        [
+          (isMal ? '<b>● MAL CONDICIONADO (Activo)</b>' : 'MAL CONDICIONADO'),
+          '21 (18 usados / 3 ocultos)', 'Equiespaciada', 'σ = 0 (ε = 10⁻⁴)',
+          'Λ₂₁ ≈ 1.94×10⁴ (Cheb: 2.87)', '6.25×10⁻⁴', '4.41×10⁻⁴ (nominal)', (sl ? fmt(sl.amplificacion_medida, 1) + '×' : '2450×'),
+          'Base polinomial global hipersensible a perturbaciones; spline recomendado'
+        ]
+      ];
+      $('t5_escenarios').innerHTML = tbl(headersEsc, rowsEsc);
     }
   }
 
@@ -1944,6 +2114,29 @@ function secante(f, x0, x1, tol = 1e-12, maxIter = 100) {
   };
 }
 
+function toggleM4ErrorScale() {
+  const isLog = !!(document.getElementById('m4ErrorLogScale') && document.getElementById('m4ErrorLogScale').checked);
+  if (typeof window !== 'undefined' && window.CURRENT_SIMULATION_FROM_DB) {
+    if (typeof window.renderM4ErrorChartFromDB === 'function') {
+      window.renderM4ErrorChartFromDB(window.CURRENT_SIMULATION_FROM_DB.ejecuciones, isLog);
+    }
+  } else if (typeof LAST !== 'undefined' && LAST && LAST.ri) {
+    const riData = LAST.ri;
+    const clampLog = v => isLog ? Math.max(v, 1e-16) : v;
+    const ptsS = (riData.eval_spline?.puntos || []).map(p => ({ x: p.x, y: clampLog(p.error_abs) }));
+    const ptsL = (riData.eval_lagrange?.puntos || []).map(p => ({ x: p.x, y: clampLog(p.error_abs) }));
+    const ptsN = (riData.eval_newton?.puntos || []).map(p => ({ x: p.x, y: clampLog(p.error_abs) }));
+
+    const dsError = [];
+    if (ptsS.length) dsError.push(ds('Error Spline natural', ptsS, C.G, { bw: 0, pr: 6, ps: 'circle', line: false }));
+    if (ptsL.length) dsError.push(ds('Error Lagrange', ptsL, C.R, { bw: 0, pr: 6, ps: 'triangle', line: false }));
+    if (ptsN.length) dsError.push(ds('Error Newton DD', ptsN, C.Y, { bw: 0, pr: 6, ps: 'rectRot', line: false }));
+
+    const yLabel = isLog ? 'Error absoluto |f(x̂) − P(x̂)| (Escala logarítmica)' : 'Error absoluto |f(x̂) − P(x̂)|';
+    chart('c13', 'line', dsError, 'Punto oculto evaluado x̂', yLabel, { yType: isLog ? 'logarithmic' : 'linear' });
+  }
+}
+
 if (typeof window !== 'undefined') {
   window.SYS = SYS;
   window.solverRows = solverRows;
@@ -1964,6 +2157,11 @@ if (typeof window !== 'undefined') {
   window.biseccion = biseccion;
   window.newtonRaphson = newtonRaphson;
   window.secante = secante;
+  window.chart = chart;
+  window.ds = ds;
+  window.tbl = tbl;
+  window.render4 = render4;
+  window.toggleM4ErrorScale = toggleM4ErrorScale;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -1971,6 +2169,7 @@ if (typeof module !== 'undefined' && module.exports) {
     SYS, solverRows, PRE, readForm, LAST,
     mod1, mod2, mod3, mod4, modInterp, evalOnPoints, lebesgueConstant, sweepInterpolation,
     splineNatural, splineEval, splineDeriv,
-    biseccion, newtonRaphson, secante
+    biseccion, newtonRaphson, secante,
+    chart, ds, tbl, render4, toggleM4ErrorScale
   };
 }

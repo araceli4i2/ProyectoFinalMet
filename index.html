@@ -353,6 +353,45 @@
       <div class="tw" id="t5"></div>
     </div>
     <div class="chartbox mt"><canvas id="c9"></canvas></div>
+    <div id="c9Note" class="note mt" style="display:none"></div>
+
+    <div class="card mt">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">Error de reconstrucción por punto y método</h3>
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="font-size:12px;cursor:pointer"><input type="checkbox" id="m4ErrorLogScale" onchange="window.toggleM4ErrorScale && window.toggleM4ErrorScale()"> Escala logarítmica</label>
+        </div>
+      </div>
+      <p class="sub">Comparación del error puntual en los nodos ocultos evaluados frente a la función verdadera sin ruido.</p>
+      <div class="chartbox mt"><canvas id="c13"></canvas></div>
+    </div>
+
+    <div class="grid g2 mt">
+      <div class="card">
+        <h3>Evaluación en puntos ocultos</h3>
+        <p class="sub">Reconstrucción puntual y error absoluto/relativo frente a la función exacta.</p>
+        <div class="tw" id="t5_ocultos"></div>
+      </div>
+      <div class="card">
+        <h3>Diferencias divididas (Newton)</h3>
+        <p class="sub">Tabla triangular de diferencias divididas f[x₀,…,xₖ] y coeficientes del polinomio interpolante.</p>
+        <div class="tw" id="t5_dd"></div>
+      </div>
+    </div>
+
+    <div class="grid g2 mt">
+      <div class="card">
+        <h3>Cruce de umbral (Detección de raíces S(t) = u)</h3>
+        <p class="sub">Comparativa de iteraciones, residuo final y convergencia entre Bisección, Newton-Raphson y Secante.</p>
+        <div class="tw" id="t5_raices"></div>
+      </div>
+      <div class="card">
+        <h3>Comparativa de estabilidad y condicionamiento por escenario</h3>
+        <p class="sub">Constante de Lebesgue Λ_n, amplificación de perturbaciones y diagnóstico de estabilidad global.</p>
+        <div class="tw" id="t5_escenarios"></div>
+      </div>
+    </div>
+
     <div id="s5" class="mt"></div>
     <div class="card mt">
       <h3>Barrido de nodos: Efecto del espaciamiento, constante de Lebesgue y ruido sensorial</h3>
