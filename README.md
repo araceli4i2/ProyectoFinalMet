@@ -100,18 +100,47 @@ Tratamiento y regularización de mediciones procedentes de sensores de tensión 
   3. **Método Iterativo de Gauss-Seidel**: Matriz de iteración $T_{GS} = -(D + L)^{-1}U$.
   4. **Gradiente Conjugado (CG)**: Optimizador para sistemas SPD con convergencia teórica en a lo más $n$ pasos bajo aritmética exacta.
   5. **Análisis Espectral**: Radio espectral $\rho$ y predicción de velocidad de convergencia.
-- **Interpolación Avanzada**:
-  * Polinomio de **Lagrange**.
-  * Polinomio de **Newton con Diferencias Divididas** y cálculo de cota teórica del error.
-  * **Splines Cúbicos Naturales** ($C^2$) para evitar oscilaciones espurias.
+- **Interpolación Avanzada y Reconstrucción de Telemetría**:
+  * Polinomio de **Lagrange**: formulación baricéntrica / global $\mathcal{O}(n^2)$.
+  * Polinomio de **Newton con Diferencias Divididas**: formulación incremental $\mathcal{O}(n)$ con tabla triangular de diferencias divididas.
+  * **Splines Cúbicos Naturales** ($C^2$): trazador seccional cúbico con curvatura nula en extremos ($S''(a) = S''(b) = 0$).
   * **Esquema de Puntos Ocultos (Parámetro $k$)**:
     * **Cantidad entera ($k$)**: Especifica el número de nodos interiores a retirar automáticamente. El motor distribuye los $k$ puntos uniformemente espaciados en el interior ($1 \le i \le n-2$), garantizando que los extremos $a$ y $b$ **nunca** se retiran.
     * **Lista explícita de índices**: Permite ingresar índices específicos separados por coma (ej. `1, 4, 7` o `[1, 4, 7]`).
     * **Procedimiento**: Los tres métodos se construyen exclusivamente con los $n - k$ nodos restantes y evalúan su capacidad predictiva contra la función analítica verdadera en los puntos ocultos.
+  * **Detección del Cruce de Umbral ($S(t) = u$) y Raíces**:
+    * Localiza los instantes donde la señal interpolada cruza el umbral crítico $u$ (por defecto $u = 0.5$).
+    * Funciones numéricas expuestas en `js/app.js`:
+      - `biseccion(f, a, b, tol = 1e-10, maxIter = 100)`: Convergencia lineal garantizada mediante bisección sucesiva de intervalos con cambio de signo ($f(a) \cdot f(b) \le 0$). Retorna `{ x, it, hist, residual, convergio, estado }`.
+      - `newtonRaphson(f, df, x0, tol = 1e-10, maxIter = 100)`: Convergencia cuadrática local utilizando la derivada analítica seccional del spline $S'(t)$. Retorna `{ x, it, hist, residual, convergio, estado }`.
+      - `secante(f, x0, x1, tol = 1e-10, maxIter = 100)`: Convergencia superlineal (orden áureo $p \approx 1.618$) mediante aproximación incremental de la secante sin evaluar derivadas. Retorna `{ x, it, hist, residual, convergio, estado }`.
+  * **Parámetros de Módulo 4**:
+    * `n`: Cantidad total de nodos sensoriales discretos generados en el dominio $[a, b] = [0, 2\pi]$ (Normal: $12$, Estrés: $40$, MC: $21$).
+    * `k`: Cantidad de puntos ocultos retirados como huecos de transmisión (por defecto $k=3$; en Normal se usan $9$, en Estrés $37$, en MC $18$).
+    * `sigma` ($\sigma$): Desviación estándar del ruido gaussiano aditivo $\mathcal{N}(0, \sigma^2)$ (Normal: $0$, Estrés: $0.05$, MC: $0$).
+    * `seed`: Semilla entera determinista del generador pseudoaleatorio LCG para ruido reproducible (por defecto `2026`).
+    * `u`: Umbral de crucero o alerta de señal sensorial (por defecto `0.5`).
+    * `tol`: Tolerancia absoluta de parada para solucionadores lineales y algoritmos de raíces ($10^{-10}$).
+  * **Nombres de Series Guardadas y Visualización en Modo Consulta (Abrir)**:
+    * `M4_ajuste_polinomico`: Ajuste por mínimos cuadrados de grado $d$.
+    * `M4_muestras_sensores`: Nodos/muestras sensoriales de entrada.
+    * `M4_interp_spline`: Curva densa interpolada por Spline Cúbico Natural $S(t)$.
+    * `M4_curva_exacta`: Curva analítica pura de referencia $f(t) = \sin(t)$.
+    * `M4_nodos_usados`: Coordenadas de los $n-k$ nodos utilizados para construir los interpoladores.
+    * `M4_puntos_ocultos`: Coordenadas de los $k$ puntos ocultos evaluados.
+    * `M4_error_por_punto`: Magnitud del error absoluto evaluado en cada punto oculto.
+    * `M4_interp_lagrange`: Curva densa interpolada por el Polinomio de Lagrange $P_L(t)$.
+    * `M4_interp_newton_dd`: Curva densa interpolada por el Polinomio de Newton $P_N(t)$.
+    * `M4_cruce_umbral`: Historial de aproximación e iteraciones de la raíz de $S(t) = u$.
+    * `M4_barrido_*`: Series del barrido paramétrico global ($n=4..24$) de error, constante de Lebesgue y estabilidad ante ruido.
+    * **Modo Consulta (Abrir)**: Al abrir una simulación guardada en el Historial, los gráficos (`c8`, `c9`, `c12`, `c13`) y tablas (`t4`, `t5`, `t5_dd`, `t5_ocultos`, `t5_raices`, `t5_escenarios`) se redibujan directamente desde `serie_grafico` sin recálculo numérico, y las conclusiones guardadas se despliegan en `#s5` bajo la insignia "BORRADOR DEL SISTEMA".
   * **Hallazgo de Estabilidad Numérica y Condicionamiento en Interpolación**:
-    * En **Normal** ($n=12, \sigma=0$): Lagrange y Newton resultan más precisos que el spline ($1.46 \times 10^{-3}$ frente a $5.81 \times 10^{-3}$), mientras que en mallas más gruesas (como $n=7$) el spline supera a los polinomios. Ningún método es superior en todo contexto.
-    * En **Estrés** ($n=40, \sigma=0.05$, realización fija con semilla 2026): El alto grado con nodos equiespaciados posee una constante de Lebesgue astronómica ($\Lambda_{40}^{\text{equi}} \approx 2.41 \times 10^9$ vs $\Lambda_{40}^{\text{cheb}} \approx 3.29$). La perturbación gaussiana $\sigma=0.05$ es amplificada violentamente por los polinomios globales (Lagrange y Newton), produciendo errores de hasta $7.72 \times 10^6$ en los puntos ocultos y $2.94 \times 10^7$ en la malla densa cerca de los extremos (**mal condicionamiento severo de la base polinomial global**). En contraste, el **Spline Cúbico Natural** interpolante pasa por los datos ruidosos, no los filtra; su error queda del orden del ruido ($0.095$ en puntos ocultos y $0.143$ en la malla densa, $\approx 2\sigma$) porque no lo amplifica.
-    * En **Mal Condicionado** ($n=21, \sigma=0$): La discretización equiespaciada presenta $\Lambda_{21}^{\text{equi}} \approx 10\,975 \gg \Lambda_{21}^{\text{cheb}} \approx 2.87$ y amplifica perturbaciones relativas $\varepsilon=10^{-6}$ por un factor de $11\,471.7\times$. Sin embargo, en condiciones nominales sin ruido el error para $\sin(t)$ es de apenas $1.43 \times 10^{-11}$ (el fenómeno clásico de Runge no ocurre debido a la analiticidad global de la función seno).
+    * En **Normal** ($n=12, k=3, \sigma=0$, 9 nodos usados): Lagrange y Newton resultan más precisos que el spline en los 3 puntos ocultos ($1.46 \times 10^{-3}$ frente a $5.81 \times 10^{-3}$) debido a la suavidad global de $\sin(t)$.
+    * En **Estrés** ($n=40, k=3, \sigma=0.05$, 37 nodos usados, semilla 2026): El alto grado con nodos equiespaciados posee una constante de Lebesgue astronómica ($\Lambda_{40}^{\text{equi}} \approx 2.41 \times 10^9$ y en nodos usados $\Lambda_{\text{usados}} \approx 3.704 \times 10^9$ vs $\Lambda_{40}^{\text{cheb}} \approx 3.29$). La perturbación gaussiana $\sigma=0.05$ es violentamente amplificada por los polinomios globales ($7.72 \times 10^6$ en puntos ocultos y hasta $2.94 \times 10^7$ en la malla densa). En contraste, el **Spline Cúbico Natural** acota el error al orden del ruido ($1.90\cdot\sigma = 0.09515$ en puntos ocultos). Asimismo, Newton DD pierde más precisión que Lagrange ($|P_L - P_N| = 0.10$) debido a cancelaciones en diferencias divididas de orden 36 sobre datos ruidosos. Con datos exactos sin ruido, el error nominal medido en la malla de 220 puntos es de $1.49 \times 10^{-7}$ debido al redondeo amplificado por $\Lambda_{\text{usados}}$ ($\approx 3.7 \times 10^9 \cdot 1.1 \times 10^{-16}$).
+    * En **Mal Condicionado** ($n=21, k=3, \sigma=0$, 18 nodos usados): La discretización equiespaciada presenta $\Lambda_{\text{usados}} \approx 11\,489.3 \gg \Lambda_{21}^{\text{cheb}} \approx 2.87$ y amplifica perturbaciones de peor caso por un factor de $11\,471.7\times$. Sin embargo, con datos exactos sin ruido el error nominal en la malla de 220 puntos es $3.69 \times 10^{-11}$ ($1.43 \times 10^{-11}$ en puntos ocultos; no se observa fenómeno clásico de Runge por la analiticidad global de la función seno).
+  * **Convergencia del Spline Natural (k = 0)**:
+    * En malla densa de 2000 puntos en $[0, 2\pi]$ con $h = 2\pi/(n-1)$, el spline natural converge monótonamente a orden $\mathcal{O}(h^4)$ con órdenes locales medidos: $4.89$ ($4\to 6$), $4.45$ ($6\to 8$), $4.22$ ($8\to 12$), $4.10$ ($12\to 16$), $4.05$ ($16\to 24$), $4.03$ ($24\to 32$) y $4.01$ ($32\to 48$). El cociente error/$(h^4/384)$ converge a $1.004$ debido a que $f''(0) = f''(2\pi) = 0$ cumple con precisión la condición de frontera natural.
+    * Con ruido sensorial $\sigma = 0.05$, el rango óptimo de discretización polinomial se ubica en el mínimo entre $n = 8$ y $n = 10$.
 
 ---
 
@@ -224,8 +253,8 @@ Para desacoplar el motor de guardado de los módulos numéricos y permitir que f
   - Se **garantiza la preservación estricta de la primera iteración ($k=0$, residuo inicial) y de la última ($k=k_{\text{final}}$, estado final de parada)**.
   - Cada fila en `iteracion_resultado` conserva su índice de iteración real (`numero = idx`), preservando la escala temporal y la fidelidad analítica de la curva de convergencia.
 
-### 7. Recuento Esperado de Ejecuciones e Iteraciones (Escenario Normal)
-Al guardar la simulación interactiva completa desde la interfaz web, se registran **23 ejecuciones numéricas**, **1,489 filas de iteraciones** y **28 series gráficas**:
+### 7. Recuento Esperado de Ejecuciones e Iteraciones (Escenario Normal / Seed Oficial)
+Al registrar el seed oficial y guardar la simulación interactiva completa desde la interfaz web, se registran **28 ejecuciones numéricas**, **1,542 filas de iteraciones** y **51 series gráficas**:
 
 | Módulo / Caso de Estudio | Método Numérico | Familia | Iteraciones ($k$) | Filas en `iteracion_resultado` | Series Gráficas |
 | :--- | :--- | :--- | :---: | :---: | :---: |
@@ -251,8 +280,13 @@ Al guardar la simulación interactiva completa desde la interfaz web, se registr
 | | Jacobi | SISTEMAS_LINEALES | 279 | 280 | 1 |
 | | Gauss-Seidel | SISTEMAS_LINEALES | 116 | 117 | 1 |
 | | Gradiente conjugado | SISTEMAS_LINEALES | 4 | 5 | 1 |
-| | Spline Cúbico Natural | INTERPOLACION | — | 0 | 3 |
-| **TOTAL** | **23 ejecuciones** | — | — | **1,489 iteraciones** | **28 series** |
+| | Spline Cúbico Natural | INTERPOLACION | — | 0 | 11 |
+| | Polinomio de Lagrange | INTERPOLACION | — | 0 | 6 |
+| | Newton Diferencias Divididas | INTERPOLACION | 8 | 9 | 6 |
+| | Bisección (Cruce $S(t)=u$) | RAICES | 33 | 34 | 1 |
+| | Newton-Raphson (Cruce $S(t)=u$) | RAICES | 4 | 5 | 1 |
+| | Secante (Cruce $S(t)=u$) | RAICES | 7 | 8 | 1 |
+| **TOTAL** | **28 ejecuciones** | — | — | **1,542 iteraciones** | **51 series** |
 
 ### 8. Guía para el Equipo: Cómo Agregar un Método o Familia al Guardado (Sin Tocar el Esquema SQL)
 
@@ -496,21 +530,22 @@ El sistema incorpora un motor de certificación de reproducibilidad matemática:
 
 ---
 
-### Datos Semilla Reales y Versionado de la Base (Paso 3D)
+### Datos Semilla Reales y Versionado de la Base (Paso 3D / Fase 8: Versión Final 3)
 
 - **Generador Determinista (`tools/gen_seed.js`)**: Ejecuta el motor numérico real de la aplicación en un entorno headless y genera `db/seed.sql` con fechas fijas y hashes reproducibles.
-  * Versión 4 Simulaciones (Normales): **338.90 KB (0.33 MB)** en archivo SQL de texto.
-  * Versión 12 Simulaciones (Normal, Estrés, MC): **3.77 MB**.
+  * Versión 4 Simulaciones (Normales): **420.27 KB (0.41 MB)** en archivo SQL de texto.
+  * Versión 12 Simulaciones (Normal, Estrés, MC): **4.05 MB**.
 - **Métricas Reales de Almacenamiento Binario SQLite (`db.export()` medido con `tools/measure_db_size.js`)**:
-  * **Base inicial (Seed con 4 simulaciones completas)**: **336.00 KB (0.33 MB)** — 23 ejecuciones, 1,489 iteraciones, 28 series.
-  * **Base tras 1 guardado completo Normal (+4 sims, 8 total)**: **600.00 KB (0.59 MB)** — 46 ejecuciones, 2,978 iteraciones, 56 series.
-  * **Base tras 5 guardados completos Normal (+20 sims, 24 total)**: **1,660.00 KB (1.62 MB)** — 138 ejecuciones, 8,934 iteraciones, 168 series.
-  * **Base tras guardar Normal, Estrés y Mal Condicionado (+12 sims, 16 total)**: **3,920.00 KB (3.83 MB)** — 92 ejecuciones, 7,253 iteraciones, 112 series.
+  * **Base inicial (Seed con 4 simulaciones completas)**: **416.00 KB (0.41 MB)** — 28 ejecuciones, 1,542 iteraciones, 51 series.
+  * **Base tras 1 guardado completo Normal (+4 sims, 8 total)**: **760.00 KB (0.74 MB)** — 56 ejecuciones, 3,084 iteraciones, 102 series.
+  * **Base tras 5 guardados completos Normal (+20 sims, 24 total)**: **2,148.00 KB (2.10 MB)** — 168 ejecuciones, 9,252 iteraciones, 306 series.
+  * **Base tras guardar Normal, Estrés y Mal Condicionado (+12 sims, 16 total)**: **4,288.00 KB (4.19 MB)** — 112 ejecuciones, 7,501 iteraciones, 204 series.
   * *Distribución del almacenamiento:* ~85% del peso corresponde a `serie_grafico` para graficación inmediata sin recálculo, y ~12% a `iteracion_resultado` gracias al muestreo determinista uniforme a 500 puntos.
-- **Versionado (`PRAGMA user_version = 2`)**:
-  * Detecta bases de datos v1 antiguas persistidas en el `IndexedDB` del navegador.
+- **Versionado (`PRAGMA user_version = 3`)**:
+  * Versión final de entrega de la plataforma.
+  * Detecta bases de datos anteriores (versión < 3) persistidas en `IndexedDB`.
   * Muestra el banner interactivo `#dbUpgradeBanner` con el botón *"Actualizar ejemplos"*.
-  * Función `DB.upgradeExamples()`: elimina únicamente las simulaciones con `usuario_equipo = 'EJEMPLO'` y escenarios huérfanos, inserta los datos de ejemplo del nuevo seed mediante enlaces dinámicos `(SELECT MAX(id) FROM ...)` y **conserva intactas** todas las simulaciones personales guardadas por el usuario.
+  * Función `DB.upgradeExamples()`: elimina únicamente las simulaciones con `usuario_equipo = 'EJEMPLO'` y escenarios huérfanos, inserta los datos de ejemplo del seed v3 determinista mediante enlaces dinámicos `(SELECT MAX(id) FROM ...)` y **conserva intactas** todas las simulaciones personales guardadas por el usuario.
 
 ---
 
@@ -543,12 +578,12 @@ Para evitar restricciones de seguridad CORS al cargar archivos locales:
 
 ### Ejecución de Pruebas Automatizadas
 
-El proyecto incluye un ejecutor universal de pruebas autónomo (sin dependencias externas) que corre la suite completa (17 pruebas automatizadas en `tests/` y la auditoría del ciclo de persistencia en `tools/`):
+El proyecto incluye un ejecutor universal de pruebas autónomo (sin dependencias externas) que corre la suite completa (18 pruebas automatizadas en `tests/` y la auditoría del ciclo de persistencia en `tools/audit_persistence_cycle.js`, 19 pruebas en total):
 
 ```bash
 node tests/run_all.js
 ```
-El ejecutor reporta el estado `PASS` o `FAIL` con código de salida para cada prueba, totaliza los resultados y devuelve código de salida `0` si todas pasan, o distinto de `0` ante cualquier fallo.
+El ejecutor reporta el estado `PASS` o `FAIL` con código de salida y tiempo de ejecución para cada prueba, totaliza los resultados y devuelve código de salida `0` si todas pasan (100%), o distinto de `0` ante cualquier fallo.
 
 ---
 

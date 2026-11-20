@@ -18,18 +18,18 @@ async function runVersioningTest() {
     locateFile: file => path.join(__dirname, '../vendor/sqljs', file)
   });
 
-  // 1. Simular una base antigua en versión 1 (v1)
-  console.log('1. Creando base de datos simulada en versión antigua (v1)...');
+  // 1. Simular una base antigua en versión 2 (v2)
+  console.log('1. Creando base de datos simulada en versión antigua (v2)...');
   const db = new SQL.Database();
   db.run('PRAGMA foreign_keys = ON;');
   const schemaSql = fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8');
   db.run(schemaSql);
-  db.run('PRAGMA user_version = 1;'); // Forzar versión 1 antigua
+  db.run('PRAGMA user_version = 2;'); // Forzar versión 2 antigua
 
   // Insertar un escenario inicial para la simulación de ejemplo antigua
   db.run(`
     INSERT INTO escenario (id, caso_id, tipo, parametros_json, fuente_datos)
-    VALUES (1, 1, 'NORMAL', '{"model":"const","v0":5,"a0":1.25}', 'Escenario v1 antiguo');
+    VALUES (1, 1, 'NORMAL', '{"model":"const","v0":5,"a0":1.25}', 'Escenario v2 antiguo');
   `);
 
   // Insertar una simulación de ejemplo antigua
@@ -86,19 +86,19 @@ async function runVersioningTest() {
 
   // Verificar estado antes de actualizar
   const verBefore = db.exec('PRAGMA user_version;')[0].values[0][0];
-  assert(verBefore === 1, `Versión antes de actualizar debe ser 1, obtenida: ${verBefore}`);
+  assert(verBefore === 2, `Versión antes de actualizar debe ser 2, obtenida: ${verBefore}`);
   const totalSimsBefore = db.exec('SELECT COUNT(*) FROM simulacion;')[0].values[0][0];
   assert(totalSimsBefore === 2, `Deben existir 2 simulaciones (ejemplo + usuario), obtenidas: ${totalSimsBefore}`);
 
   // 3. Ejecutar DB.upgradeExamples()
-  console.log('3. Ejecutando DB.upgradeExamples() para migrar a v2 e instalar seed real...');
+  console.log('3. Ejecutando DB.upgradeExamples() para migrar a v3 e instalar seed real...');
   const success = await DB.upgradeExamples(db);
   assert(success === true, 'upgradeExamples debe retornar true');
 
   // 4. Verificaciones posteriores a la actualización
   const verAfter = db.exec('PRAGMA user_version;')[0].values[0][0];
   console.log(`   • Versión posterior en SQLite: v${verAfter}`);
-  assert(verAfter === 2, `Versión tras actualización DEBE ser 2, obtenida: ${verAfter}`);
+  assert(verAfter === 3, `Versión tras actualización DEBE ser 3, obtenida: ${verAfter}`);
 
   // Verificar que la simulación de ejemplo antigua (id=99) fue borrada
   const oldEjemploQuery = db.exec('SELECT COUNT(*) FROM simulacion WHERE id = 99;')[0].values[0][0];
