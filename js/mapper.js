@@ -271,7 +271,7 @@ const Mapper = (() => {
         const cotaAmp = lebRef * epsMaq;
         if (diffLN > cotaAmp * 10) {
           // Caso ruidoso de alto grado (Estrés): Newton DD pierde más precisión que Lagrange
-          lnText += `|P_L − P_N| = ${sciVal(diffLN)}; Newton DD con datos ruidosos pierde más precisión que Lagrange por cancelaciones catastróficas.`;
+          lnText += `|P_L − P_N| = ${sciVal(diffLN)}; Newton DD pierde más precisión que la forma directa de Lagrange (depende de la implementación y se observa con datos ruidosos).`;
         } else {
           // Caso regular (MC): redondeo amplificado dentro de la cota teórica
           lnText += `|P_L − P_N| = ${sciVal(diffLN)} ≤ Λ_usados·ε_maq ≈ ${sciVal(cotaAmp)} (redondeo amplificado por mal condicionamiento).`;
@@ -291,7 +291,7 @@ const Mapper = (() => {
         const ordStr = sw.ordenes_locales_k0.map(o => `${o.n1}→${o.n2} (p=${Number(o.p).toFixed(2)})`).join(', ');
         swText += ` Órdenes locales de convergencia del spline natural medidos dinámicamente con k = 0 en malla de 2000 puntos y h = 2π/(n-1): ${ordStr}, convergiendo monótonamente a orden teórico O(h⁴) con cociente error/(h⁴/384) → 1.004. Esto ocurre porque para sen(t) en [0, 2π] la segunda derivada se anula en los extremos (f''(0) = f''(2π) = 0), cumpliendo exactamente la condición de frontera natural S''(a) = S''(b) = 0; en funciones con f''(extremos) ≠ 0 (como exp(-t)), la condición natural introduce una capa límite que degrada el orden asintótico a O(h²).`;
       }
-      swText += ` Protocolo de perturbación y estabilidad: la perturbación de signos alternados representa el peor caso al alinearse con los picos de las funciones base de Lagrange, alcanzando casi Λ_usados por construcción (en Estrés 3.65×10⁹ ≈ 3.704×10⁹); con signos aleatorios el factor medio es menor (~15 en Normal, ~3.9×10³ en MC y ~1.0×10⁹ en Estrés). En versiones previas se citó erróneamente 1.84×10⁸ para Estrés al evaluar el error inducido por ruido σ·Λ_usados (0.05 × 3.68×10⁹ ≈ 1.84×10⁸) en lugar del factor adimensional. Asimismo, la cifra descartada 4.54×10⁻¹² correspondía al error numérico ideal de 40 nodos sin considerar el mal condicionamiento de los 37 nodos usados, cuyo error nominal sin ruido medido en la malla de 220 puntos es 1.49×10⁻⁷ debido al redondeo amplificado por Λ_usados.`;
+      swText += ` Protocolo de perturbación y estabilidad: la perturbación de signos alternados representa el peor caso al alinearse con los picos de las funciones base de Lagrange, alcanzando casi Λ_usados por construcción (en Estrés 3.65×10⁹ ≈ 3.704×10⁹); con signos aleatorios el factor medio es menor (~15 en Normal, ~3.9×10³ en MC y ~1.0×10⁹ en Estrés). En versiones previas se citó erróneamente 1.84×10⁸ para Estrés al evaluar el error inducido por ruido σ·Λ_usados (0.05 × 3.68×10⁹ ≈ 1.84×10⁸) en lugar del factor adimensional.`;
       comunPartsNum.push(swText);
     }
 

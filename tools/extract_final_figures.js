@@ -23,11 +23,15 @@ async function extractFigures() {
   console.table(modCounts);
 
   // 2. Parámetros y Métricas de M4 en los 3 escenarios
+  // NOTA: Solo el escenario Normal se lee de db/seed.sql (ejemplo canónico #4).
+  // Las columnas de ESTRÉS y MAL CONDICIONADO se calculan con el motor numérico (semilla 2026),
+  // no se leen del seed (que solo trae ejemplos NORMAL).
   const { loadEngine } = require('./gen_seed.js');
   const engine = loadEngine();
   const scenCodes = ['N', 'E', 'MC'];
 
   console.log('\n2. Métricas de M4 por Escenario:');
+  console.log('   (Aclaración: Solo Normal proviene de db/seed.sql; Estrés y Mal Condicionado se calculan con el motor [semilla 2026], no se leen del seed)');
   const summaryRows = [];
   for (const sc of scenCodes) {
     const p4 = engine.PRE[sc].m4;
