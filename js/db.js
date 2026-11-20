@@ -747,8 +747,8 @@ PRAGMA user_version = 2;
         try { val = JSON.parse(ej.resumen.valor_json); } catch (e) { val = {}; }
       }
       if (ej.resumen) {
-        if (ej.resumen.conclusion_numerica) conclNum.push(ej.resumen.conclusion_numerica);
-        if (ej.resumen.conclusion_problema) conclProb.push(ej.resumen.conclusion_problema);
+        if (ej.resumen.conclusion_numerica && !conclNum.includes(ej.resumen.conclusion_numerica)) conclNum.push(ej.resumen.conclusion_numerica);
+        if (ej.resumen.conclusion_problema && !conclProb.includes(ej.resumen.conclusion_problema)) conclProb.push(ej.resumen.conclusion_problema);
       }
 
       if (ej.metodo.includes('Runge-Kutta') || ej.metodo.includes('RK4')) {
@@ -1313,6 +1313,31 @@ PRAGMA user_version = 2;
           ];
           t5escEl.innerHTML = tbl(headersEsc, rowsEsc) +
             `<p class="note" style="margin-top:6px"><em>Nota:</em> En modo consulta se visualizan exclusivamente las métricas del escenario abierto recuperadas de SQLite (Simulación #${simulacion.id}). Los demás escenarios no se recalculan ni se muestran con datos fijos.</p>`;
+        }
+
+        // Renderizar bloque de interpretación de M4 (Fase 7) en modo consulta
+        const s5El = (typeof document !== 'undefined') ? document.getElementById('s5') : null;
+        if (s5El && ejSpline && ejSpline.resumen) {
+          const concNum = ejSpline.resumen.conclusion_numerica || '';
+          const concProb = ejSpline.resumen.conclusion_problema || '';
+          if (concNum || concProb) {
+            s5El.innerHTML = `
+              <div class="card mt" id="m4ConclusionsCard">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                  <h3 style="margin:0;">Interpretación de Resultados (Módulo 4)</h3>
+                  <span class="pill y">BORRADOR DEL SISTEMA</span>
+                </div>
+                <div class="mt">
+                  <h4 style="margin-bottom:6px;">CONCLUSIÓN NUMÉRICA</h4>
+                  <p id="m4ConcNumText" style="line-height:1.6; color:var(--text, #333);">${concNum}</p>
+                </div>
+                <div class="mt">
+                  <h4 style="margin-bottom:6px;">CONCLUSIÓN DEL PROBLEMA</h4>
+                  <p id="m4ConcProbText" style="line-height:1.6; color:var(--text, #333);">${concProb}</p>
+                </div>
+              </div>
+            `;
+          }
         }
       }
 

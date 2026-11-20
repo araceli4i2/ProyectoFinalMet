@@ -1593,11 +1593,34 @@ function render4(r, ri) {
       `</p>`;
   }
 
-  $('s5').innerHTML = `<p>Ajuste polinómico de grado ${r.n - 1} con ${r.r.length} muestras. La matriz AᵀA tiene κ₂ = ${sci(r.kap)}: un error relativo de 10⁻⁶ en los datos puede amplificarse hasta del orden de κ₂·10⁻⁶ en los coeficientes.</p>
-    ${ri ? `<p>Interpolación con ${ri.n} nodos usados y ${ri.k} punto${ri.k === 1 ? '' : 's'} oculto${ri.k === 1 ? '' : 's'} evaluado${ri.k === 1 ? '' : 's'}. Lagrange y Newton representan el mismo polinomio con error máximo ${sci(ri.eL)} y equivalencia numérica |P_L − P_N|_max = ${sci(ri.diffLN)}. El spline cúbico natural obtiene error máximo ${sci(ri.eS)} (RMS = ${sci(ri.eval_spline ? ri.eval_spline.error_rms : ri.eS)}), evitando oscilaciones espurias globales.</p>` : ''}
-    ${extraRoots}
-    ${extraM4}
-    ${extraSweep}`;
+  const getMapper = () => {
+    if (typeof Mapper !== 'undefined' && Mapper.buildM4Conclusions) return Mapper;
+    if (typeof window !== 'undefined' && window.Mapper && window.Mapper.buildM4Conclusions) return window.Mapper;
+    if (typeof globalThis !== 'undefined' && globalThis.Mapper && globalThis.Mapper.buildM4Conclusions) return globalThis.Mapper;
+    return null;
+  };
+  const mp = getMapper();
+  const concM4 = mp ? mp.buildM4Conclusions(ri) : { conclusion_numerica: '', conclusion_problema: '' };
+
+  const s5El = $('s5');
+  if (s5El) {
+    s5El.innerHTML = `
+      <div class="card mt" id="m4ConclusionsCard">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h3 style="margin:0;">Interpretación de Resultados (Módulo 4)</h3>
+          <span class="pill y">BORRADOR DEL SISTEMA</span>
+        </div>
+        <div class="mt">
+          <h4 style="margin-bottom:6px;">CONCLUSIÓN NUMÉRICA</h4>
+          <p id="m4ConcNumText" style="line-height:1.6; color:var(--text, #333);">${concM4.conclusion_numerica}</p>
+        </div>
+        <div class="mt">
+          <h4 style="margin-bottom:6px;">CONCLUSIÓN DEL PROBLEMA</h4>
+          <p id="m4ConcProbText" style="line-height:1.6; color:var(--text, #333);">${concM4.conclusion_problema}</p>
+        </div>
+      </div>
+    `;
+  }
 }
 
 function renderMethods() {
@@ -1780,23 +1803,42 @@ function renderAnalysis() {
 
 function renderConclusions() {
   if (!LAST.r1) return;
-  const { r1, r2, r3, r4 } = LAST, c = r3.cal, pReac = r1.D ? r1.dR / r1.D * 100 : null;
-  $('concNum').innerHTML = li([
+  const { r1, r2, r3, r4, ri } = LAST, c = r3.cal, pReac = r1.D ? r1.dR / r1.D * 100 : null;
+  const getMapper = () => {
+    if (typeof Mapper !== 'undefined' && Mapper.buildM4Conclusions) return Mapper;
+    if (typeof window !== 'undefined' && window.Mapper && window.Mapper.buildM4Conclusions) return window.Mapper;
+    if (typeof globalThis !== 'undefined' && globalThis.Mapper && globalThis.Mapper.buildM4Conclusions) return globalThis.Mapper;
+    return null;
+  };
+  const mp = getMapper();
+  const concM4 = (mp && ri) ? mp.buildM4Conclusions(ri) : null;
+
+  const numItems = [
     `Eliminación gaussiana (LU) resuelve el sistema SPD del Módulo 1 en un solo paso. κ₂ recalculado = ${fmt(kappaOf(SYS.m1.A), 4)}; el informe cita 2.2450 en su planteamiento y 2.1266 en el recálculo, y esta página muestra el recálculo espectral.`,
     'Jacobi puede divergir aun con matriz SPD cuando ρ(T_J) ≥ 1. Gauss-Seidel suele converger más rápido que Jacobi, y el gradiente conjugado aprovecha la simetría y la definición positiva.',
     'La cota de error ‖x − x̃‖/‖x‖ ≤ κ₂·‖r‖/‖b‖ permite estimar la precisión a partir del residual, sin conocer x*.',
     c ? `El escalado de columnas de la matriz normal reduce κ₂ de ${sci(c.kR)} a ${fmt(c.kS, 2)}.` : 'La calibración 3×3 no tiene solución con estos parámetros.',
-    'RK4 (error global O(h⁴)) es mucho más preciso que Heun (O(h²)). En el Módulo 1 el informe cita errores de 0.0001598 m/s (RK4) y 0.0388644 m/s (RK2).',
-    'Lagrange y Newton representan el mismo polinomio. La cota M/n!·∏|x̂ − xᵢ| acota el error para funciones suaves; en el ejemplo de sen con nodos 0, π/2, π, P₂(π/4) = 0.750000 con error 0.042893, dentro de la cota 0.2422.'
-  ]);
+    'RK4 (error global O(h⁴)) es mucho más preciso que Heun (O(h²)). En el Módulo 1 el informe cita errores de 0.0001598 m/s (RK4) y 0.0388644 m/s (RK2).'
+  ];
+  if (concM4 && concM4.conclusion_numerica) {
+    numItems.push(concM4.conclusion_numerica);
+  } else {
+    numItems.push('Lagrange y Newton representan el mismo polinomio. La cota M/n!·∏|x̂ − xᵢ| acota el error para funciones suaves; en el ejemplo de sen con nodos 0, π/2, π, P₂(π/4) = 0.750000 con error 0.042893, dentro de la cota 0.2422.');
+  }
+  $('concNum').innerHTML = li(numItems);
 
-  $('concProb').innerHTML = li([
+  const probItems = [
     `Frenado: la distancia de reacción v₀·t_r = ${fmt(r1.dR, 2)} m representa el ${pReac == null ? '—' : fmt(pReac, 1) + ' %'} de D_total, de modo que reducir t_r tiene efecto directo sobre la seguridad.`,
     `Deterioro: el umbral se cruza en t* = ${r2.tStar == null ? '—' : fmt(r2.tStar, 2)} meses en el escenario activo, con sensibilidad ${r2.sens == null ? '—' : sci(r2.sens)} meses por unidad de umbral.`,
-    `Viento: la amplitud depende de Ω y del amortiguamiento c; la cercanía a la resonancia (Ω/ω = ${fmt(r3.rr, 3)}) determina si se supera A_lim.`,
-    `Sensores: el grado del polinomio y el ruido de medición determinan κ₂ = ${sci(r4.kap)} y el error de los coeficientes.`,
-    'Escenarios: Normal, Estrés y Mal condicionado producen conclusiones distintas; la tabla de escenarios compara los tres con los mismos cálculos.'
-  ]);
+    `Viento: la amplitud depende de Ω y del amortiguamiento c; la cercanía a la resonancia (Ω/ω = ${fmt(r3.rr, 3)}) determina si se supera A_lim.`
+  ];
+  if (concM4 && concM4.conclusion_problema) {
+    probItems.push(concM4.conclusion_problema);
+  } else {
+    probItems.push(`Sensores: el grado del polinomio y el ruido de medición determinan κ₂ = ${sci(r4.kap)} y el error de los coeficientes.`);
+  }
+  probItems.push('Escenarios: Normal, Estrés y Mal condicionado producen conclusiones distintas; la tabla de escenarios compara los tres con los mismos cálculos.');
+  $('concProb').innerHTML = li(probItems);
 
   $('concl').innerHTML = `<div class="conclusion"><p>Para el escenario ${SCEN_NAME[val('scen')] || '—'}, el frenado ${r1.seguro ? 'cumple' : 'no cumple'} el requisito de distancia (D_total = ${fmt(r1.D, 2)} m), el deterioro cruza el umbral en t* = ${r2.tStar == null ? '—' : fmt(r2.tStar, 2)} meses, la amplitud por viento es X = ${fmt(r3.X, 3)} m ${r3.X <= r3.Alim ? 'dentro' : 'fuera'} del límite y el ajuste de sensores tiene κ₂ = ${sci(r4.kap)}. La comparación de escenarios y la teoría de errores (absoluto, relativo, porcentual, residual y κ₂) identifican qué parámetros de diseño son críticos.</p></div>` +
     '<p class="note"><b>Limitaciones</b></p>' + li([

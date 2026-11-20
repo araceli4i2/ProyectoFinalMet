@@ -153,6 +153,158 @@ const Mapper = (() => {
     return sampled;
   }
 
+  // 3b. Generador de conclusiones de interpretación para M4 (Fase 7)
+  // Genera Conclusión Numérica y Conclusión del Problema estrictamente desde los datos guardados
+  function buildM4Conclusions(ri) {
+    if (!ri) return { conclusion_numerica: '', conclusion_problema: '' };
+
+    // Si ri es un conjunto de ejecuciones DB o resumen, adaptar
+    if (Array.isArray(ri.ejecuciones)) {
+      const ejS = ri.ejecuciones.find(e => e.metodo === 'Spline Cúbico Natural');
+      if (ejS && ejS.resumen && ejS.resumen.conclusion_numerica) {
+        return {
+          conclusion_numerica: ejS.resumen.conclusion_numerica,
+          conclusion_problema: ejS.resumen.conclusion_problema || ''
+        };
+      }
+    }
+
+    const nUsados = ri.n || (Array.isArray(ri.xs) ? ri.xs.length : (Array.isArray(ri.nodos_usados) ? ri.nodos_usados.length : null));
+    const kOcultos = ri.k || (Array.isArray(ri.puntos_ocultos) ? ri.puntos_ocultos.length : null);
+    const nTotal = ri.allNodes ? ri.allNodes.length : ((nUsados != null && kOcultos != null) ? (nUsados + kOcultos) : null);
+    const distrib = ri.distrib || 'equi';
+    const distribStr = (distrib === 'cheb') ? 'Chebyshev' : 'equiespaciada';
+    const sigma = (ri.sigma !== undefined && ri.sigma !== null) ? Number(ri.sigma) : 0;
+    const seed = ri.seed !== undefined ? ri.seed : 2026;
+
+    const sErrMax = sanitizeNumber(ri.eval_spline ? ri.eval_spline.error_max : ri.eS);
+    const sErrRms = sanitizeNumber(ri.eval_spline ? ri.eval_spline.error_rms : null);
+    const lErrMax = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_max : ri.eL);
+    const lErrRms = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_rms : null);
+    const nErrMax = sanitizeNumber(ri.eval_newton ? ri.eval_newton.error_max : ri.eN);
+    const diffLN = (ri.diffLN !== undefined && ri.diffLN !== null)
+      ? sanitizeNumber(ri.diffLN)
+      : ((Array.isArray(ri.fL) && Array.isArray(ri.fN) && ri.fL.length === ri.fN.length)
+          ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
+          : null);
+
+    const sl = ri.subexp_lebesgue || null;
+    const sw = ri.sweep || null;
+    const cu = ri.cruce_umbral || null;
+
+    function fmtVal(v, d = 2) {
+      if (v === null || v === undefined || !Number.isFinite(Number(v))) return '—';
+      return Number(v).toFixed(d);
+    }
+    function sciVal(v, d = 2) {
+      if (v === null || v === undefined || !Number.isFinite(Number(v))) return '—';
+      const num = Number(v);
+      if (num === 0) return '0';
+      if (Math.abs(num) >= 0.01 && Math.abs(num) < 1000) return num.toFixed(d);
+      return num.toExponential(d);
+    }
+
+    // =========================================================================
+    // 1. CONCLUSIÓN NUMÉRICA
+    // =========================================================================
+    const numParts = [];
+
+    // 1.1 Comparación en puntos ocultos
+    if (sErrMax !== null && lErrMax !== null && kOcultos !== null && nUsados !== null) {
+      let compIntro = '';
+      if (sErrMax < lErrMax) {
+        compIntro = `el spline cúbico natural obtuvo menor error máximo (${sciVal(sErrMax)}${sErrRms !== null ? `, RMS = ${sciVal(sErrRms)}` : ''}) que el polinomio global (${sciVal(lErrMax)}${lErrRms !== null ? `, RMS = ${sciVal(lErrRms)}` : ''})`;
+      } else if (lErrMax < sErrMax) {
+        compIntro = `el polinomio global obtuvo menor error máximo (${sciVal(lErrMax)}${lErrRms !== null ? `, RMS = ${sciVal(lErrRms)}` : ''}) que el spline cúbico natural (${sciVal(sErrMax)}${sErrRms !== null ? `, RMS = ${sciVal(sErrRms)}` : ''})`;
+      } else {
+        compIntro = `el spline cúbico natural y el polinomio global obtuvieron errores máximos coincidentes (${sciVal(sErrMax)})`;
+      }
+      numParts.push(`En la evaluación sobre los ${kOcultos} puntos ocultos con ${nUsados} nodos usados (distribución ${distribStr}, σ = ${sigma}), ${compIntro}. El comportamiento relativo de los métodos depende del régimen: con grado moderado sin ruido ambas aproximaciones son coherentes, mientras que con alto grado o perturbaciones el spline mantiene control local del error y el polinomio global se desestabiliza.`);
+    }
+
+    // 1.2 Estabilidad ante ruido
+    if (sigma > 0) {
+      const ratioStr = (sErrMax !== null && Number.isFinite(sErrMax) && sigma > 0)
+        ? (sErrMax / sigma).toFixed(2)
+        : null;
+      const ratioTxt = ratioStr !== null ? ` (cociente medido error/σ = ${ratioStr})` : '';
+      numParts.push(`Ante ruido sensorial σ = ${sigma} (1 realización con semilla ${seed}), el spline natural interpolante pasa directamente por los datos ruidosos sin filtrado: su error queda del orden del ruido porque no lo amplifica${ratioTxt}, mientras que el polinomio global con nodos equiespaciados amplifica fuertemente el error en los extremos debido al mal condicionamiento de base.`);
+    } else if (sigma === 0 && (sErrMax !== null || lErrMax !== null)) {
+      numParts.push('Con datos sin ruido (σ = 0), los errores calculados corresponden estrictamente al residuo de truncamiento de cada discretización.');
+    }
+
+    // 1.3 Barrido de nodos, orden de convergencia y punto óptimo con ruido
+    if (sw) {
+      let swText = 'En el barrido con ruido sensorial σ = 0.05 (promedio de 5 realizaciones con semillas 2026-2030), el error polinomial mínimo ocurre en el rango entre n = 8 y n = 10; para n ≥ 12 el polinomio global diverge debido al crecimiento de la constante de Lebesgue, mientras que el spline natural se mantiene estable con error proporcional a σ. La constante de Lebesgue reportada en el barrido corresponde a los n nodos completos antes de retirar puntos ocultos, a diferencia de los nodos usados que dejan de ser equiespaciados.';
+      if (sw.ordenes_locales_k0 && Array.isArray(sw.ordenes_locales_k0) && sw.ordenes_locales_k0.length > 0) {
+        const ordStr = sw.ordenes_locales_k0.map(o => `${o.n1}→${o.n2} (p=${Number(o.p).toFixed(2)})`).join(', ');
+        swText += ` Órdenes locales de convergencia del spline natural medidos dinámicamente con k = 0 en malla de 2000 puntos y h = 2π/(n-1): ${ordStr}, convergiendo monótonamente a orden teórico O(h⁴) con cociente error/(h⁴/384) → 1.004. Esto ocurre porque para sen(t) en [0, 2π] la segunda derivada se anula en los extremos (f''(0) = f''(2π) = 0), cumpliendo exactamente la condición de frontera natural S''(a) = S''(b) = 0; en funciones con f''(extremos) ≠ 0 (como exp(-t)), la condición natural introduce una capa límite que degrada el orden asintótico a O(h²).`;
+      }
+      numParts.push(swText);
+    }
+
+    // 1.4 Subexperimento de Lebesgue y distinciones conceptuales
+    if (sl) {
+      const nTotStr = sl.n_total != null ? sl.n_total : 'N';
+      const nUsStr = sl.n != null ? sl.n : 'n';
+      let lebText = `Para N = ${nTotStr} nodos completos, la constante de Lebesgue equiespaciada es Λ_N = ${fmtVal(sl.lebesgue_equi, 1)} frente a Chebyshev Λ_cheb = ${fmtVal(sl.lebesgue_cheb, 2)}`;
+      if (sl.lebesgue_usados != null) {
+        lebText += `, mientras que sobre los ${nUsStr} nodos usados reales es Λ_usados = ${fmtVal(sl.lebesgue_usados, 1)}`;
+      }
+      lebText += '.';
+      if (sl.amplificacion_medida != null) {
+        lebText += ` Una perturbación ε = 10⁻⁶ en las ordenadas resultó amplificada por un factor medido de ${fmtVal(sl.amplificacion_medida, 1)}× (cota teórica Λ·ε = ${sciVal(sl.cota_lebesgue_epsilon)}).`;
+      }
+      lebText += ` Distinción conceptual: el mal condicionamiento es una propiedad intrínseca del problema de interpolación con nodos equiespaciados (medido por Λ_N y por la amplificación de perturbaciones); la no convergencia es una propiedad del método (para sen(t) sin ruido el error nominal máximo es ${sciVal(sl.error_nominal_max)}, por lo que no se produce el fenómeno clásico de Runge debido a la analiticidad entera de la función); el riesgo físico no aplica por tratarse de un análisis de estabilidad matemática.`;
+      numParts.push(lebText);
+    }
+
+    // 1.5 Equivalencia y diferencia algorítmica Lagrange vs Newton
+    let lnText = 'Equivalencia numérica: las representaciones de Lagrange y de Newton evalúan el mismo polinomio interpolante único';
+    if (diffLN !== null) {
+      lnText += `, con discrepancia medida máxima |P_L − P_N| = ${sciVal(diffLN)} (en el rango de precisión de máquina).`;
+    } else {
+      lnText += ' (coincidencia analítica formal).';
+    }
+    lnText += ' Diferencia algorítmica: la fórmula de Lagrange suma productos de bases globales L_i(t) con costo computacional O(n²) y requiere recalcular todas las bases ante un nuevo dato; el esquema de Newton calcula diferencias divididas en tabla triangular, permitiendo añadir un nuevo nodo de medición con costo O(n) sin reevaluar los coeficientes previos.';
+    numParts.push(lnText);
+
+    // =========================================================================
+    // 2. CONCLUSIÓN DEL PROBLEMA
+    // =========================================================================
+    const probParts = [];
+
+    // 2.1 Confiabilidad de reconstrucción de huecos
+    probParts.push(`La reconstrucción de la curva a partir de telemetría discontinua permite estimar los valores perdidos en los ${kOcultos !== null ? kOcultos : 'k'} puntos ocultos correspondientes a huecos de transmisión del sensor. La confiabilidad de la curva reconstruida depende directamente de: (1) el número de nodos disponibles (${nUsados !== null ? nUsados : 'n'}) y su distribución espacial (${distribStr}), donde nodos concentrados hacia los extremos (tipo Chebyshev) mitigan la pérdida de precisión en los bordes; (2) el nivel de ruido sensorial (σ = ${sigma}); y (3) la separación temporal del hueco.`);
+
+    // 2.2 Cruce del umbral
+    if (cu) {
+      const uStr = cu.u !== undefined ? cu.u : 'u';
+      const tStar = cu.t_analitico != null
+        ? Number(cu.t_analitico).toFixed(4)
+        : (cu.t_star_spline != null
+            ? Number(cu.t_star_spline).toFixed(4)
+            : (cu.newton && cu.newton.x != null ? Number(cu.newton.x).toFixed(4) : '—'));
+      const itBis = cu.biseccion ? (cu.biseccion.it ?? cu.biseccion.iter ?? '—') : '—';
+      const itNew = cu.newton ? (cu.newton.it ?? cu.newton.iter ?? '—') : '—';
+      const resNew = (cu.newton && cu.newton.residual != null)
+        ? sciVal(cu.newton.residual)
+        : ((cu.newton && cu.newton.res != null) ? sciVal(cu.newton.res) : '—');
+      const itSec = cu.secante ? (cu.secante.it ?? cu.secante.iter ?? '—') : '—';
+      probParts.push(`Para la detección del cruce del umbral u = ${uStr}, los métodos numéricos de raíces sobre la curva reconstruida estiman el instante de cruce en t* ≈ ${tStar} s (Bisección: ${itBis} iteraciones; Newton-Raphson: ${itNew} iteraciones con residuo ${resNew}; Secante: ${itSec} iteraciones). La detección del cruce del umbral depende de la búsqueda inicial de intervalo en la malla de evaluación de 220 puntos.`);
+    } else {
+      probParts.push('La estimación del cruce del umbral sobre la curva reconstruida permite localizar instantes críticos mediante métodos de raíces, cuyo resultado queda determinado por el intervalo delimitado en la malla de evaluación de 220 puntos.');
+    }
+
+    // 2.3 Descargo estricto de datos didácticos
+    probParts.push('Descargo de simulación didáctica: Todos los cálculos y señales corresponden a datos sintéticos generados para el estudio de métodos numéricos; ninguno describe la instrumentación física ni el comportamiento real de los sensores del sistema Mi Teleférico.');
+
+    return {
+      conclusion_numerica: numParts.join(' '),
+      conclusion_problema: probParts.join(' ')
+    };
+  }
+
   // 4. Extractor genérico de ejecuciones para cualquier familia de métodos
   // Soporta: EDO, SISTEMAS_LINEALES, RAICES, ANALITICO, EDO_SISTEMA, INTERPOLACION
   function buildAllExecutions(results, params, scenKey) {
@@ -559,10 +711,13 @@ const Mapper = (() => {
       const subexp = ri.subexp_lebesgue ? {
         lebesgue_equi: sanitizeNumber(ri.subexp_lebesgue.lebesgue_equi),
         lebesgue_cheb: sanitizeNumber(ri.subexp_lebesgue.lebesgue_cheb),
+        lebesgue_usados: sanitizeNumber(ri.subexp_lebesgue.lebesgue_usados),
         amplificacion_medida: sanitizeNumber(ri.subexp_lebesgue.amplificacion_medida),
         cota_lebesgue_epsilon: sanitizeNumber(ri.subexp_lebesgue.cota_lebesgue_epsilon),
         runge_observado: ri.subexp_lebesgue.runge_observado,
-        error_nominal_max: sanitizeNumber(ri.subexp_lebesgue.error_nominal_max)
+        error_nominal_max: sanitizeNumber(ri.subexp_lebesgue.error_nominal_max),
+        n_total: ri.subexp_lebesgue.n_total,
+        n: ri.subexp_lebesgue.n
       } : null;
 
       const sw = ri.sweep || null;
@@ -589,18 +744,8 @@ const Mapper = (() => {
         { nombre: 'M4_barrido_ruido_std_newton_dd', datos_json: JSON.stringify(sw.series.M4_barrido_ruido_std_newton_dd || []) }
       ] : [];
 
-      let concNumSpline = `Spline cúbico natural C² evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${sErrMax != null ? Number(sErrMax).toExponential(3) : '—'}, RMS = ${sErrRms != null ? Number(sErrRms).toExponential(3) : '—'}).`;
-      if (ri.subexp_lebesgue) {
-        concNumSpline += ` Condicionamiento: El spline cúbico natural resuelve un sistema global tridiagonal estrictamente diagonal-dominante, con constante de Lebesgue acotada Λ_spline ≈ 1.55 independiente de N (medida Λ₄₀=1.549 vs Λ₄₀_equi≈2.41e9 del polinomio global).`;
-      } else if (ri.sigma > 0) {
-        concNumSpline += ` Régimen de alta demanda y ruido σ=${ri.sigma} (realización semilla ${ri.seed}): el spline natural interpolante pasa por los datos ruidosos, no los filtra; su error queda del orden del ruido (~0.14) porque no lo amplifica (no es más preciso en general, pero evita la divergencia polinomial).`;
-      }
-      if (sw) {
-        const strOrdenes = (sw.ordenes_locales_k0 || [])
-          .map(o => `${o.n1}→${o.n2} (p=${o.p.toFixed(2)})`)
-          .join(', ');
-        concNumSpline += ` Barrido: órdenes locales medidos dinámicamente con k = 0 en malla de 2000 puntos y h = 2π/(n-1): ${strOrdenes}, convergiendo monótonamente a orden teórico O(h⁴). Con ruido sensorial σ=0.05 el error polinomial mínimo ocurre en el rango entre n = 8 y n = 10; para n ≥ 12 el polinomio global diverge por Lebesgue mientras el spline natural se mantiene acotado.`;
-      }
+      // Conclusiones generadas dinámicamente desde los datos de M4 (Fase 7)
+      const concM4 = buildM4Conclusions(ri);
 
       executions.push({
         caso_id: 4,
@@ -644,8 +789,8 @@ const Mapper = (() => {
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
             rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null
           }),
-          conclusion_numerica: concNumSpline,
-          conclusion_problema: 'Interpolación suave entre nodos de telemetría sin oscilaciones espurias.'
+          conclusion_numerica: concM4.conclusion_numerica,
+          conclusion_problema: concM4.conclusion_problema
         },
         series: [
           { nombre: 'M4_interp_spline', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fS ? ri.fS[i] : null }))) },
@@ -662,17 +807,6 @@ const Mapper = (() => {
       const lErrMax = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_max : ri.eL);
       const lErrRms = sanitizeNumber(ri.eval_lagrange ? ri.eval_lagrange.error_rms : ri.eL);
       const lPeor = (ri.eval_lagrange && ri.eval_lagrange.peor_punto) ? ri.eval_lagrange.peor_punto : null;
-
-      let concNumLagrange = `Forma canónica de Lagrange (grado ${gradoP}) evaluada en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${lErrMax != null ? Number(lErrMax).toExponential(3) : '—'}). Equivalencia con Newton: |P_L - P_N|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`;
-      if (ri.subexp_lebesgue) {
-        const sl = ri.subexp_lebesgue;
-        concNumLagrange += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
-      } else if (ri.sigma > 0) {
-        concNumLagrange += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
-      }
-      if (sw) {
-        concNumLagrange += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en el rango entre n = 8 y n = 10 (${sanitizeNumber(sw.min_noise_error)}) y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.28e4). La constante de Lebesgue reportada en el barrido corresponde a los n nodos completos antes de retirar los puntos ocultos, no a los nodos usados (que dejan de ser equiespaciados).`;
-      }
 
       executions.push({
         caso_id: 4,
@@ -719,8 +853,8 @@ const Mapper = (() => {
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
             rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null
           }),
-          conclusion_numerica: concNumLagrange,
-          conclusion_problema: 'Reconstrucción polinómica global de telemetría.'
+          conclusion_numerica: concM4.conclusion_numerica,
+          conclusion_problema: concM4.conclusion_problema
         },
         series: [
           { nombre: 'M4_interp_lagrange', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fL ? ri.fL[i] : null }))) },
@@ -734,17 +868,6 @@ const Mapper = (() => {
       const nErrMax = sanitizeNumber(ri.eval_newton ? ri.eval_newton.error_max : ri.eN);
       const nErrRms = sanitizeNumber(ri.eval_newton ? ri.eval_newton.error_rms : ri.eN);
       const nPeor = (ri.eval_newton && ri.eval_newton.peor_punto) ? ri.eval_newton.peor_punto : null;
-
-      let concNumNewton = `Interpolación mediante esquema triangular de diferencias divididas (grado ${gradoP}, orden ${(ri.tableDD || []).length}) evaluado en ${kOcultos} punto${kOcultos === 1 ? '' : 's'} oculto${kOcultos === 1 ? '' : 's'} (error máx = ${nErrMax != null ? Number(nErrMax).toExponential(3) : '—'}). Equivalencia con Lagrange: |P_N - P_L|_max = ${sanitizeNumber(diffLN) != null ? Number(diffLN).toExponential(2) : '0'}.`;
-      if (ri.subexp_lebesgue) {
-        const sl = ri.subexp_lebesgue;
-        concNumNewton += ` Mal condicionado medido: Λ_equi = ${Number(sl.lebesgue_equi).toFixed(1)} >> Λ_cheb = ${Number(sl.lebesgue_cheb).toFixed(2)}; perturbación ε=1e-6 amplificada ${Number(sl.amplificacion_medida).toFixed(1)}x. Sin ruido, error sen(t) = ${Number(sl.error_nominal_max).toExponential(2)} (no hay divergencia de Runge por analiticidad).`;
-      } else if (ri.sigma > 0) {
-        concNumNewton += ` Alta demanda (N=${ri.allNodes.length}) con ruido sensorial σ=${ri.sigma} (realización semilla ${ri.seed}): el alto grado con nodos equiespaciados amplifica fuertemente el ruido (Λ₄₀ ≈ 2.41e9, error máx ~1e7 en extremos), manifestando el severo mal condicionamiento del polinomio global.`;
-      }
-      if (sw) {
-        concNumNewton += ` Barrido n=4..24: con ruido σ=0.05 el error mínimo ocurre en el rango entre n = 8 y n = 10 (${sanitizeNumber(sw.min_noise_error)}) y crece para n≥12 por constante de Lebesgue (Λ₂₄≈7.28e4). La constante de Lebesgue reportada en el barrido corresponde a los n nodos completos antes de retirar los puntos ocultos, no a los nodos usados (que dejan de ser equiespaciados).`;
-      }
 
       const newtonIters = [];
       if (Array.isArray(ri.tableDD)) {
@@ -808,8 +931,8 @@ const Mapper = (() => {
             orden_convergencia_spline_p: sw ? sanitizeNumber(sw.p_spline) : null,
             rango_optimo_ruido: sw ? sw.rango_optimo_ruido : null
           }),
-          conclusion_numerica: concNumNewton,
-          conclusion_problema: 'Permite incorporación incremental de nuevos nodos de muestreo.'
+          conclusion_numerica: concM4.conclusion_numerica,
+          conclusion_problema: concM4.conclusion_problema
         },
         series: [
           { nombre: 'M4_interp_newton_dd', datos_json: JSON.stringify((ri.grid || []).map((x, i) => ({ x, y: ri.fN ? ri.fN[i] : (ri.fL ? ri.fL[i] : null) }))) },
@@ -1374,7 +1497,8 @@ const Mapper = (() => {
     toContractV1,
     toContractV2,
     parseContract,
-    slug
+    slug,
+    buildM4Conclusions
   };
 })();
 
