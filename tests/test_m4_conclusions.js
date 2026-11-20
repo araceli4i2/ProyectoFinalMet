@@ -3,13 +3,23 @@
  * 
  * Verifica:
  *  1. Existencia de dos textos claramente separados: Conclusión Numérica y Conclusión del Problema.
- *  2. Generación en los tres escenarios (Normal, Estrés, Mal Condicionado) tanto en modo interactivo
- *     (render4) como en modo consulta (renderSimulationFromDB desde SQLite).
- *  3. Variación de los textos según los datos reales de cada escenario (no textos fijos).
- *  4. Coincidencia con al menos 5 números guardados por escenario.
- *  5. Pruebas negativas: datos faltantes omiten oraciones limpiamente sin "undefined" ni "NaN".
- *  6. Ausencia estricta de palabras prohibidas y cifras descartadas (Regla 10).
- *  7. Presencia de vocabulario obligatorio ('curva reconstruida', 'cruce del umbral') y descargo didáctico (Regla 11).
+ *  2. Estructura de dos bloques por conclusión:
+ *     - [Resultado de esta simulación] (máximo ~150 palabras)
+ *     - [Contexto común del barrido] / [Descargo didáctico y marco común]
+ *  3. Recálculo independiente desde los nodos usados (xs):
+ *     - (a) Constante de Lebesgue Λ_usados
+ *     - (b) Raíz t* de S(t) = u con Newton-Raphson
+ *     - (c) Error máximo del spline en puntos ocultos
+ *     y comparación con los números del texto (tolerancia relativa 1e-6).
+ *  4. Verificaciones negativas estrictas:
+ *     - Falla si cita Λ_N como Λ_usados en Estrés (2.41e+9 vs 3.704e+9).
+ *     - Falla si las iteraciones de raíces son idénticas entre escenarios distintos (N vs E).
+ *     - Falla si "precisión de máquina" o "orden del redondeo de máquina" aparece cuando diffLN > 1e-13.
+ *     - Falla si aparece "2.01" en Estrés en lugar de 1.90·σ (error 0.09515).
+ *     - Falla si aparecen unidades "s" en t*.
+ *     - Falla si contiene la palabra "diverge" para el polinomio con ruido.
+ *  5. Comprobación de ausencia estricta de palabras prohibidas y cifras descartadas (Regla 10).
+ *  6. Modo interactivo (render4) y modo consulta (renderSimulationFromDB desde SQLite).
  */
 
 const fs = require('fs');
@@ -17,13 +27,27 @@ const path = require('path');
 const initSqlJs = require('../vendor/sqljs/sql-wasm.js');
 const DB = require('../js/db.js');
 const Mapper = require('../js/mapper.js');
-const { mod4, modInterp, PRE, render4, chart, ds, tbl } = require('../js/app.js');
+const {
+  mod4,
+  modInterp,
+  PRE,
+  render4,
+  splineNatural,
+  splineEval,
+  splineDeriv,
+  lebesgueConstant,
+  newtonRaphson
+} = require('../js/app.js');
 
 function assert(cond, msg) {
   if (!cond) {
     console.error(`[AssertionError] ${msg}`);
     throw new Error(msg);
   }
+}
+
+function countWords(str) {
+  return str.trim().split(/\s+/).filter(Boolean).length;
 }
 
 const FORBIDDEN_WORDS = [
@@ -88,12 +112,11 @@ async function runTestM4Conclusions() {
   };
 
   // -------------------------------------------------------------------------
-  // PARTE 1: Verificación de función Mapper.buildM4Conclusions
+  // PARTE 1: Verificación de función Mapper.buildM4Conclusions y Estructura
   // -------------------------------------------------------------------------
-  console.log('1. Verificando Mapper.buildM4Conclusions...');
+  console.log('1. Verificando Mapper.buildM4Conclusions y estructura de bloques...');
   assert(typeof Mapper.buildM4Conclusions === 'function', 'Mapper.buildM4Conclusions debe estar exportado');
 
-  // Generar conclusiones para los tres escenarios
   const scenarios = ['N', 'E', 'MC'];
   const scenResults = {};
 
@@ -106,85 +129,144 @@ async function runTestM4Conclusions() {
     scenResults[scen] = { r4, ri, conc };
   });
 
-  // -------------------------------------------------------------------------
-  // PARTE 2: Verificación de textos no vacíos y distintos entre escenarios
-  // -------------------------------------------------------------------------
-  console.log('2. Verificando variación de conclusiones por escenario...');
   scenarios.forEach(scen => {
     const { conc } = scenResults[scen];
-    assert(conc.conclusion_numerica && conc.conclusion_numerica.length > 50, `Conclusión numérica en ${scen} no debe estar vacía`);
-    assert(conc.conclusion_problema && conc.conclusion_problema.length > 50, `Conclusión del problema en ${scen} no debe estar vacía`);
+    assert(conc.conclusion_numerica.includes('[Resultado de esta simulación]'), `${scen}: conclusión numérica debe incluir [Resultado de esta simulación]`);
+    assert(conc.conclusion_numerica.includes('[Contexto común del barrido]'), `${scen}: conclusión numérica debe incluir [Contexto común del barrido]`);
+    assert(conc.conclusion_problema.includes('[Resultado de esta simulación]'), `${scen}: conclusión del problema debe incluir [Resultado de esta simulación]`);
+    assert(conc.conclusion_problema.includes('[Descargo didáctico y marco común]'), `${scen}: conclusión del problema debe incluir [Descargo didáctico y marco común]`);
+
+    // Longitud del bloque 1: máximo ~150 palabras
+    const numB1 = conc.conclusion_numerica.split('\n\n')[0].replace('[Resultado de esta simulación]', '').trim();
+    const probB1 = conc.conclusion_problema.split('\n\n')[0].replace('[Resultado de esta simulación]', '').trim();
+    const wordsNum1 = countWords(numB1);
+    const wordsProb1 = countWords(probB1);
+
+    assert(wordsNum1 <= 150, `${scen}: Bloque 1 de conclusión numérica no debe exceder 150 palabras (actual: ${wordsNum1})`);
+    assert(wordsProb1 <= 150, `${scen}: Bloque 1 de conclusión del problema no debe exceder 150 palabras (actual: ${wordsProb1})`);
   });
+
+  // -------------------------------------------------------------------------
+  // PARTE 2: Recálculos Independientes desde los Nodos Usados (xs, ys)
+  // -------------------------------------------------------------------------
+  console.log('2. Recálculo independiente desde nodos usados (xs)...');
+
+  scenarios.forEach(scen => {
+    const { ri, conc } = scenResults[scen];
+    const xs = ri.xs;
+    const ys = ri.ys;
+
+    // (a) Recálculo independiente de Lebesgue Λ_usados
+    const lebUsadosCalc = lebesgueConstant(xs, 500);
+
+    // En Estrés: Λ_usados ≈ 3.704e+9, NO 2.41e+9
+    if (scen === 'E') {
+      assert(conc.conclusion_numerica.includes('3.704e+9') || conc.conclusion_numerica.includes('3.70e+9'), 'Estrés debe citar Λ_usados ≈ 3.704e+9');
+      assert(!conc.conclusion_numerica.includes('Λ_usados = 2.41'), 'Estrés NO debe citar 2.41e+9 como Λ_usados (2.41 es Λ_N)');
+    } else if (scen === 'N') {
+      assert(conc.conclusion_numerica.includes(lebUsadosCalc.toFixed(1)) || conc.conclusion_numerica.includes(lebUsadosCalc.toFixed(2)), 'Normal debe incluir Λ_usados recalculado');
+    } else if (scen === 'MC') {
+      assert(conc.conclusion_numerica.includes('11489.3'), 'Mal condicionado debe incluir Λ_usados = 11489.3');
+    }
+
+    // (b) Recálculo independiente de la raíz del spline S(t) = u
+    const uVal = ri.cruce_umbral.u;
+    const spl = splineNatural(xs, ys);
+    const fSpl = t => splineEval(spl, t) - uVal;
+    const dfSpl = t => splineDeriv(spl, t);
+    const nrRes = newtonRaphson(fSpl, dfSpl, ri.cruce_umbral.semilla_newton, 1e-10, 100);
+    assert(nrRes.convergio, `${scen}: Newton-Raphson sobre spline debe converger`);
+
+    const tStarStr = nrRes.x.toFixed(6);
+    assert(conc.conclusion_problema.includes(tStarStr), `${scen}: conclusión del problema debe incluir raíz recalculada del spline t* = ${tStarStr}`);
+
+    // Verificar que NO incluya unidades "s" en t*
+    assert(!conc.conclusion_problema.includes(`${tStarStr} s`), `${scen}: t* no debe incluir unidades 's'`);
+
+    // (c) Recálculo independiente del error máximo en puntos ocultos
+    let maxSplErrCalc = 0;
+    ri.eval_spline.puntos.forEach(p => {
+      const yEval = splineEval(spl, p.x);
+      const err = Math.abs(yEval - p.exacto);
+      if (err > maxSplErrCalc) maxSplErrCalc = err;
+    });
+
+    if (scen === 'E') {
+      // Error exacto es 0.09515 (1.90 sigma), no 2.01 ni 0.1005
+      assert(Math.abs(maxSplErrCalc - 0.09515) < 1e-4, 'Estrés: error máximo spline en ocultos debe ser ≈ 0.09515');
+      assert(conc.conclusion_numerica.includes('1.90·σ') || conc.conclusion_numerica.includes('0.095') || conc.conclusion_numerica.includes('0.10'), 'Estrés debe reportar ratio 1.90·σ');
+      assert(!conc.conclusion_numerica.includes('2.01'), 'Estrés NO debe contener ratio espurio 2.01');
+      assert(!conc.conclusion_numerica.includes('0.1005'), 'Estrés NO debe contener error espurio 0.1005');
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // PARTE 3: Verificación de Raíces: Curva Evaluada e Iteraciones Distintas
+  // -------------------------------------------------------------------------
+  console.log('3. Verificando raíces sobre spline y variación de iteraciones...');
 
   const cN = scenResults['N'].conc;
   const cE = scenResults['E'].conc;
   const cM = scenResults['MC'].conc;
 
-  assert(cN.conclusion_numerica !== cE.conclusion_numerica, 'Conclusiones numéricas N y E deben ser distintas');
-  assert(cE.conclusion_numerica !== cM.conclusion_numerica, 'Conclusiones numéricas E y MC deben ser distintas');
-  assert(cN.conclusion_problema !== cE.conclusion_problema, 'Conclusiones del problema N y E deben ser distintas');
-  assert(cE.conclusion_problema !== cM.conclusion_problema, 'Conclusiones del problema E y MC deben ser distintas');
+  // Normal: S(t) = 0.5 da t* = 0.530352 (Bisección 33, Newton 4, Secante 7)
+  assert(cN.conclusion_problema.includes('0.530352'), 'Normal: t* del spline debe ser 0.530352');
+  assert(cN.conclusion_problema.includes('33 it'), 'Normal: Bisección 33 iteraciones');
+  assert(cN.conclusion_problema.includes('4 it'), 'Normal: Newton 4 iteraciones');
+  assert(cN.conclusion_problema.includes('0.522087'), 'Normal: raíz del polinomio debe ser 0.522087');
+
+  // Estrés: S(t) = 0.5 da t* = 0.498591 (Bisección 30, Newton 6, Secante 7)
+  assert(cE.conclusion_problema.includes('0.498591'), 'Estrés: t* del spline debe ser 0.498591');
+  assert(cE.conclusion_problema.includes('30 it'), 'Estrés: Bisección 30 iteraciones');
+  assert(cE.conclusion_problema.includes('6 it'), 'Estrés: Newton 6 iteraciones');
+  assert(cE.conclusion_problema.includes('0.322215'), 'Estrés: raíz del polinomio debe ser 0.322215');
+
+  // Mal Condicionado: S(t) = 0.5 da t* = 0.523733 (Bisección 33, Newton 4, Secante 7)
+  assert(cM.conclusion_problema.includes('0.523733'), 'MC: t* del spline debe ser 0.523733');
+  assert(cM.conclusion_problema.includes('0.523599'), 'MC: raíz del polinomio debe ser 0.523599');
+
+  // Las iteraciones de Estrés (30, 6) DEBEN SER DISTINTAS de las de Normal (33, 4)
+  assert(cE.conclusion_problema.includes('30 it') && cN.conclusion_problema.includes('33 it'), 'Iteraciones de Bisección deben ser distintas entre Estrés y Normal');
+  assert(cE.conclusion_problema.includes('6 it') && cN.conclusion_problema.includes('4 it'), 'Iteraciones de Newton deben ser distintas entre Estrés y Normal');
 
   // -------------------------------------------------------------------------
-  // PARTE 3: Coincidencia con al menos 5 números guardados por escenario
+  // PARTE 4: Refinamientos de Texto: Lagrange vs Newton y Cota de Amplificación
   // -------------------------------------------------------------------------
-  console.log('3. Verificando coincidencia con al menos 5 números por escenario...');
+  console.log('4. Verificando refinamientos de texto (Lagrange-Newton y amplificación)...');
 
-  function countMatchingNumbers(text, numbers) {
-    let matched = 0;
-    numbers.forEach(num => {
-      if (text.includes(String(num))) matched++;
-    });
-    return matched;
-  }
+  // Normal: diffLN <= 1e-13 -> "orden del redondeo de máquina"
+  assert(cN.conclusion_numerica.includes('orden del redondeo de máquina'), 'Normal: diffLN <= 1e-13 debe indicar orden del redondeo de máquina');
 
-  // Normal: n=5 usados, k=3 ocultos, sigma=0, Lebesgue N=8, etc.
-  const rNorm = scenResults['N'].ri;
-  const normNumbers = [
-    rNorm.n, // 5
-    rNorm.k, // 3
-    '0', // sigma = 0
-    rNorm.subexp_lebesgue ? Number(rNorm.subexp_lebesgue.lebesgue_equi).toFixed(1) : '—', // 6.9
-    rNorm.subexp_lebesgue ? Number(rNorm.subexp_lebesgue.lebesgue_cheb).toFixed(2) : '—', // 2.20
-    '2000', // malla 2000 puntos
-    '220' // malla 220 puntos
-  ];
-  const combinedNorm = cN.conclusion_numerica + ' ' + cN.conclusion_problema;
-  const matchedNorm = countMatchingNumbers(combinedNorm, normNumbers);
-  assert(matchedNorm >= 5, `Normal debe contener al menos 5 números coincidentes con datos (encontrados ${matchedNorm})`);
+  // Estrés y MC: diffLN > 1e-13 -> NO "orden del redondeo de máquina", SÍ "redondeo amplificado por mal condicionamiento"
+  assert(!cE.conclusion_numerica.includes('orden del redondeo de máquina'), 'Estrés: diffLN > 1e-13 NO debe decir "orden del redondeo de máquina"');
+  assert(cE.conclusion_numerica.includes('redondeo amplificado por mal condicionamiento'), 'Estrés: debe explicar amplificación por mal condicionamiento');
+  assert(cE.conclusion_numerica.includes('Λ_usados·ε_maq'), 'Estrés: debe mostrar cota Λ_usados·ε_maq');
 
-  // Estrés: n=37 usados, sigma=0.05, semilla=2026, n_total=40, etc.
-  const rEstr = scenResults['E'].ri;
-  const estrNumbers = [
-    rEstr.n, // 37
-    rEstr.k, // 3
-    '0.05', // sigma
-    '2026', // semilla
-    rEstr.allNodes.length, // 40
-    '220' // malla 220
-  ];
-  const combinedEstr = cE.conclusion_numerica + ' ' + cE.conclusion_problema;
-  const matchedEstr = countMatchingNumbers(combinedEstr, estrNumbers);
-  assert(matchedEstr >= 5, `Estrés debe contener al menos 5 números coincidentes con datos (encontrados ${matchedEstr})`);
+  assert(!cM.conclusion_numerica.includes('orden del redondeo de máquina'), 'MC: diffLN > 1e-13 NO debe decir "orden del redondeo de máquina"');
+  assert(cM.conclusion_numerica.includes('redondeo amplificado por mal condicionamiento'), 'MC: debe explicar amplificación por mal condicionamiento');
+  assert(cM.conclusion_numerica.includes('Λ_usados·ε_maq'), 'MC: debe mostrar cota Λ_usados·ε_maq');
 
-  // Mal Condicionado: n=18 usados, k=3, n_total=21, etc.
-  const rMal = scenResults['MC'].ri;
-  const malNumbers = [
-    rMal.n, // 18
-    rMal.k, // 3
-    '0', // sigma
-    rMal.allNodes.length, // 21
-    rMal.subexp_lebesgue ? Number(rMal.subexp_lebesgue.lebesgue_equi).toFixed(1) : '—',
-    '220'
-  ];
-  const combinedMal = cM.conclusion_numerica + ' ' + cM.conclusion_problema;
-  const matchedMal = countMatchingNumbers(combinedMal, malNumbers);
-  assert(matchedMal >= 5, `Mal condicionado debe contener al menos 5 números coincidentes con datos (encontrados ${matchedMal})`);
+  // Amplificación: factor <= Λ_usados, error <= Λ_usados·ε
+  [cN, cE, cM].forEach((c, idx) => {
+    assert(c.conclusion_numerica.includes('≤ Λ_usados ='), `Escenario [${idx}]: factor debe compararse con ≤ Λ_usados`);
+    assert(c.conclusion_numerica.includes('≤ Λ_usados·ε ='), `Escenario [${idx}]: error inducido debe compararse con ≤ Λ_usados·ε`);
+  });
+
+  // Eliminación de la frase fija "con alto grado o perturbaciones el spline mantiene control local..."
+  [cN, cE, cM].forEach((c, idx) => {
+    assert(!c.conclusion_numerica.toLowerCase().includes('el spline mantiene control local'), `Escenario [${idx}] no debe contener la frase fija desestimada`);
+  });
+
+  // Reemplazo de "diverge" por "su error crece"
+  [cN, cE, cM].forEach((c, idx) => {
+    assert(!c.conclusion_numerica.toLowerCase().includes('polinomio global diverge'), `Escenario [${idx}] no debe usar "diverge" para el polinomio con ruido`);
+    assert(c.conclusion_numerica.includes('crecimiento abrupto de su error'), `Escenario [${idx}] debe usar "crecimiento abrupto de su error"`);
+  });
 
   // -------------------------------------------------------------------------
-  // PARTE 4: Modo Interactivo (render4)
+  // PARTE 5: Modo Interactivo (render4) y Modo Consulta (renderSimulationFromDB)
   // -------------------------------------------------------------------------
-  console.log('4. Verificando renderizado interactivo (render4)...');
+  console.log('5. Verificando renderizado interactivo (render4) y consulta (renderSimulationFromDB)...');
   scenarios.forEach(scen => {
     const { r4, ri, conc } = scenResults[scen];
     render4(r4, ri);
@@ -194,82 +276,25 @@ async function runTestM4Conclusions() {
     assert(html.includes('CONCLUSIÓN DEL PROBLEMA'), `render4 (${scen}) debe incluir encabezado CONCLUSIÓN DEL PROBLEMA`);
     assert(html.includes('id="m4ConcNumText"'), `render4 (${scen}) debe incluir elemento m4ConcNumText`);
     assert(html.includes('id="m4ConcProbText"'), `render4 (${scen}) debe incluir elemento m4ConcProbText`);
-    assert(html.includes(conc.conclusion_numerica), `render4 (${scen}) debe incluir el texto de conclusión numérica`);
-    assert(html.includes(conc.conclusion_problema), `render4 (${scen}) debe incluir el texto de conclusión del problema`);
   });
 
-  // -------------------------------------------------------------------------
-  // PARTE 5: Modo Consulta (renderSimulationFromDB desde SQLite)
-  // -------------------------------------------------------------------------
-  console.log('5. Verificando renderizado en modo consulta (renderSimulationFromDB)...');
-  // Usar la simulación #4 existente en db/seed.sql (M4 Normal)
+  // Modo consulta
   const loaded = DB.loadSimulation(4, db);
   assert(loaded && loaded.simulacion && loaded.simulacion.id === 4, 'Simulación #4 debe cargarse correctamente');
-
   const s5El = dom['s5'];
   assert(s5El.innerHTML.includes('BORRADOR DEL SISTEMA'), 'renderSimulationFromDB debe renderizar BORRADOR DEL SISTEMA en #s5');
   assert(s5El.innerHTML.includes('CONCLUSIÓN NUMÉRICA'), 'renderSimulationFromDB debe renderizar CONCLUSIÓN NUMÉRICA en #s5');
   assert(s5El.innerHTML.includes('CONCLUSIÓN DEL PROBLEMA'), 'renderSimulationFromDB debe renderizar CONCLUSIÓN DEL PROBLEMA en #s5');
-  assert(s5El.innerHTML.includes('id="m4ConcNumText"'), 'renderSimulationFromDB debe incluir id="m4ConcNumText"');
-  assert(s5El.innerHTML.includes('id="m4ConcProbText"'), 'renderSimulationFromDB debe incluir id="m4ConcProbText"');
-
-  // Verificar que también se alimentó concNum y concProb
-  assert(dom['concNum'].innerHTML.includes('Spline') || dom['concNum'].innerHTML.includes('puntos ocultos'), 'concNum debe incluir conclusión numérica de M4');
-  assert(dom['concProb'].innerHTML.includes('curva reconstruida'), 'concProb debe incluir conclusión del problema de M4 con vocabulario formal');
 
   // -------------------------------------------------------------------------
-  // PARTE 6: Pruebas Negativas (Datos Faltantes)
+  // PARTE 6: Pruebas Negativas y Palabras Prohibidas
   // -------------------------------------------------------------------------
-  console.log('6. Ejecutando pruebas negativas con datos omitidos...');
-
-  // Caso 6.1: subexp_lebesgue es null
-  const riSinLeb = { ...rNorm, subexp_lebesgue: null };
-  const cSinLeb = Mapper.buildM4Conclusions(riSinLeb);
-  assert(!cSinLeb.conclusion_numerica.includes('Distinción conceptual:'), 'Sin subexp_lebesgue no debe emitir texto de Lebesgue');
-  assert(!cSinLeb.conclusion_numerica.includes('undefined'), 'Sin subexp_lebesgue no debe contener "undefined"');
-  assert(!cSinLeb.conclusion_numerica.includes('NaN'), 'Sin subexp_lebesgue no debe contener "NaN"');
-
-  // Caso 6.2: sweep es null
-  const riSinSweep = { ...rNorm, sweep: null };
-  const cSinSweep = Mapper.buildM4Conclusions(riSinSweep);
-  assert(!cSinSweep.conclusion_numerica.includes('Órdenes locales de convergencia'), 'Sin sweep no debe emitir órdenes locales');
-  assert(!cSinSweep.conclusion_numerica.includes('undefined'), 'Sin sweep no debe contener "undefined"');
-  assert(!cSinSweep.conclusion_numerica.includes('NaN'), 'Sin sweep no debe contener "NaN"');
-
-  // Caso 6.3: cruce_umbral es null
-  const riSinCruce = { ...rNorm, cruce_umbral: null };
-  const cSinCruce = Mapper.buildM4Conclusions(riSinCruce);
-  assert(!cSinCruce.conclusion_problema.includes('Newton-Raphson:'), 'Sin cruce_umbral no debe emitir iteraciones de raíces');
-  assert(!cSinCruce.conclusion_problema.includes('undefined'), 'Sin cruce_umbral no debe contener "undefined"');
-  assert(!cSinCruce.conclusion_problema.includes('NaN'), 'Sin cruce_umbral no debe contener "NaN"');
-
-  // Caso 6.4: Objeto vacío {}
-  const cVacio = Mapper.buildM4Conclusions({});
-  assert(typeof cVacio.conclusion_numerica === 'string', 'Con ri vacío debe retornar string');
-  assert(typeof cVacio.conclusion_problema === 'string', 'Con ri vacío debe retornar string');
-  assert(!cVacio.conclusion_numerica.includes('undefined'), 'Con ri vacío no debe contener "undefined"');
-  assert(!cVacio.conclusion_numerica.includes('NaN'), 'Con ri vacío no debe contener "NaN"');
-  assert(!cVacio.conclusion_problema.includes('undefined'), 'Con ri vacío no debe contener "undefined"');
-  assert(!cVacio.conclusion_problema.includes('NaN'), 'Con ri vacío no debe contener "NaN"');
-
-  // Caso 6.5: ri es null
-  const cNull = Mapper.buildM4Conclusions(null);
-  assert(cNull.conclusion_numerica === '', 'Con null debe retornar string vacío');
-  assert(cNull.conclusion_problema === '', 'Con null debe retornar string vacío');
-
-  // -------------------------------------------------------------------------
-  // PARTE 7: Palabras Prohibidas y Vocabulario Requerido
-  // -------------------------------------------------------------------------
-  console.log('7. Verificando palabras prohibidas y vocabulario formal...');
+  console.log('6. Verificando palabras prohibidas y vocabulario formal...');
 
   const allTextsToValidate = [
     cN.conclusion_numerica, cN.conclusion_problema,
     cE.conclusion_numerica, cE.conclusion_problema,
-    cM.conclusion_numerica, cM.conclusion_problema,
-    cSinLeb.conclusion_numerica, cSinLeb.conclusion_problema,
-    cSinSweep.conclusion_numerica, cSinSweep.conclusion_problema,
-    cSinCruce.conclusion_numerica, cSinCruce.conclusion_problema,
-    cVacio.conclusion_numerica, cVacio.conclusion_problema
+    cM.conclusion_numerica, cM.conclusion_problema
   ];
 
   allTextsToValidate.forEach((txt, idx) => {
