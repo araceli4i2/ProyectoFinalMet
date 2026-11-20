@@ -237,14 +237,27 @@ async function runTestM4Conclusions() {
   // Normal: diffLN <= 1e-13 -> "orden del redondeo de máquina"
   assert(cN.conclusion_numerica.includes('orden del redondeo de máquina'), 'Normal: diffLN <= 1e-13 debe indicar orden del redondeo de máquina');
 
-  // Estrés y MC: diffLN > 1e-13 -> NO "orden del redondeo de máquina", SÍ "redondeo amplificado por mal condicionamiento"
+  // Estrés: Newton DD sobre datos ruidosos pierde más precisión que Lagrange (NO usar palabra cota)
   assert(!cE.conclusion_numerica.includes('orden del redondeo de máquina'), 'Estrés: diffLN > 1e-13 NO debe decir "orden del redondeo de máquina"');
-  assert(cE.conclusion_numerica.includes('redondeo amplificado por mal condicionamiento'), 'Estrés: debe explicar amplificación por mal condicionamiento');
-  assert(cE.conclusion_numerica.includes('Λ_usados·ε_maq'), 'Estrés: debe mostrar cota Λ_usados·ε_maq');
+  assert(cE.conclusion_numerica.includes('pierde más precisión'), 'Estrés: debe explicar que Newton DD pierde más precisión con datos ruidosos');
+  assert(!cE.conclusion_numerica.includes('cota ≈ Λ_usados·ε_maq'), 'Estrés: NO debe usar la palabra cota para |P_L − P_N|');
 
+  // MC: diffLN <= Λ_usados·ε_maq -> redondeo amplificado dentro de la cota
   assert(!cM.conclusion_numerica.includes('orden del redondeo de máquina'), 'MC: diffLN > 1e-13 NO debe decir "orden del redondeo de máquina"');
   assert(cM.conclusion_numerica.includes('redondeo amplificado por mal condicionamiento'), 'MC: debe explicar amplificación por mal condicionamiento');
   assert(cM.conclusion_numerica.includes('Λ_usados·ε_maq'), 'MC: debe mostrar cota Λ_usados·ε_maq');
+
+  // Error nominal sin ruido en malla densa de 220 puntos
+  assert(cE.conclusion_numerica.includes('1.49e-7') || cE.conclusion_numerica.includes('1.5e-7'), 'Estrés: debe reportar error nominal sin ruido ≈ 1.49e-7');
+  assert(!cE.conclusion_numerica.includes('sin ruido = 2.94e+7'), 'Estrés: error nominal sin ruido NO debe ser 2.94e+7');
+  assert(cN.conclusion_numerica.includes('2.25e-3'), 'Normal: debe reportar error nominal sin ruido 2.25e-3');
+  assert(cM.conclusion_numerica.includes('3.69e-11'), 'MC: debe reportar error nominal sin ruido 3.69e-11');
+
+  // Protocolo de perturbación: peor caso vs factor medio con signos aleatorios
+  assert(cE.conclusion_numerica.includes('peor caso'), 'Estrés: debe indicar perturbación de peor caso');
+  assert(cE.conclusion_numerica.includes('~1.0e9'), 'Estrés: debe reportar factor medio aleatorio ~1.0e9');
+  assert(cN.conclusion_numerica.includes('~15'), 'Normal: debe reportar factor medio aleatorio ~15');
+  assert(cM.conclusion_numerica.includes('~3.9e3'), 'MC: debe reportar factor medio aleatorio ~3.9e3');
 
   // Amplificación: factor <= Λ_usados, error <= Λ_usados·ε
   [cN, cE, cM].forEach((c, idx) => {

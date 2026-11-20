@@ -651,10 +651,12 @@ function modInterp(p) {
     }
     const ampMedida = maxDiffPert / eps;
 
-    // Error nominal sin ruido frente a función verdadera
+    // Error nominal sin ruido frente a función verdadera (calculado con datos exactos y = f(x) sin ruido sobre xs)
+    const ysExact = xs.map(x => f(x));
+    const fLExact = grid.map(t => lagrangeEval(xs, ysExact, t));
     let maxNominalErr = 0;
     for (let i = 0; i < grid.length; i++) {
-      const d = Math.abs(fT[i] - fL[i]);
+      const d = Math.abs(fT[i] - fLExact[i]);
       if (d > maxNominalErr) maxNominalErr = d;
     }
     const rungeObservado = (maxNominalErr > 1.0);
@@ -674,7 +676,7 @@ function modInterp(p) {
       error_nominal_max: maxNominalErr,
       diagnostico: {
         mal_condicionamiento: `Propiedad del problema: Λ_equi = ${fmt(lebEqui, 1)} >> Λ_cheb = ${fmt(lebCheb, 2)}. Nodos equiespaciados amplifican perturbaciones por factor medido de ${fmt(ampMedida, 1)}x.`,
-        falta_convergencia: `Propiedad del método: para ${p.func === 'exp' ? 'e^(−t)' : 'sen(t)'} sin ruido el error nominal es ${sci(maxNominalErr)} (el fenómeno clásico de Runge NO se observa por analiticidad global de la función).`,
+        falta_convergencia: `Propiedad del método: para ${p.func === 'exp' ? 'e^(−t)' : 'sen(t)'} sin ruido el error nominal en malla de 220 puntos es ${sci(maxNominalErr)} (el fenómeno clásico de Runge NO se observa por analiticidad global de la función).`,
         riesgo_fisico: 'No aplica: es un análisis de estabilidad matemática de la discretización sensorial sin implicancia mecánica.'
       }
     };

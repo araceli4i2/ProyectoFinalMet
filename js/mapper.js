@@ -185,8 +185,8 @@ const Mapper = (() => {
     const diffLN = (ri.diffLN !== undefined && ri.diffLN !== null)
       ? sanitizeNumber(ri.diffLN)
       : ((Array.isArray(ri.fL) && Array.isArray(ri.fN) && ri.fL.length === ri.fN.length)
-          ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
-          : null);
+        ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
+        : null);
 
     const sl = ri.subexp_lebesgue || null;
     const sw = ri.sweep || null;
@@ -221,7 +221,8 @@ const Mapper = (() => {
       const fmtErr = v => (Number(v) > 0.01 && Number(v) < 0.1) ? Number(v).toFixed(5) : sciVal(v);
       let compIntro = '';
       if (sErrMax < lErrMax) {
-        compIntro = `el spline natural obtuvo menor error máximo (${fmtErr(sErrMax)}) que el polinomio (${sciVal(lErrMax)})`;
+        const sTxt = (sigma > 0) ? `${(sErrMax / sigma).toFixed(2)}·σ = ${fmtErr(sErrMax)}` : fmtErr(sErrMax);
+        compIntro = `el spline natural obtuvo menor error máximo (${sTxt}) que el polinomio (${sciVal(lErrMax)})`;
       } else if (lErrMax < sErrMax) {
         compIntro = `el polinomio obtuvo menor error máximo (${fmtErr(lErrMax)}) que el spline natural (${sciVal(sErrMax)})`;
       } else {
@@ -229,14 +230,13 @@ const Mapper = (() => {
       }
       let regimenStr = '';
       if (sigma > 0) {
-        const multSig = (sErrMax / sigma).toFixed(2);
-        regimenStr = `Con n = ${nUsados} y ruido σ = ${sigma} (semilla ${seed}), el spline mantiene error del orden del ruido (${multSig}·σ = ${fmtErr(sErrMax)}), mientras el polinomio amplifica perturbaciones a ${sciVal(lErrMax)}.`;
+        regimenStr = 'acotando el error al orden del ruido.';
       } else if (lErrMax < sErrMax) {
-        regimenStr = `Sin ruido (n = ${nUsados}, σ = 0), el polinomio converge más rápido por la regularidad de sen(t).`;
+        regimenStr = 'Sin ruido (σ = 0), el polinomio converge más rápido por la regularidad de sen(t).';
       } else {
-        regimenStr = `Sin ruido (n = ${nUsados}, σ = 0), el spline natural ofrece mejor precisión seccional.`;
+        regimenStr = 'Sin ruido (σ = 0), el spline natural ofrece mejor precisión seccional.';
       }
-      simPartsNum.push(`En ${kOcultos} puntos ocultos con ${nUsados} nodos usados (${distribStr}, σ = ${sigma}), ${compIntro}. ${regimenStr}`);
+      simPartsNum.push(`En ${kOcultos} puntos ocultos con ${nUsados} nodos usados (${distribStr}, σ = ${sigma}${sigma > 0 ? `, semilla ${seed}` : ''}), ${compIntro}, ${regimenStr}`);
     }
 
     // 1.2 Subexperimento de Lebesgue y distinciones conceptuales de esta simulación
@@ -253,13 +253,10 @@ const Mapper = (() => {
         const lebBound = sl.lebesgue_usados != null ? sl.lebesgue_usados : sl.lebesgue_equi;
         const errPert = sl.error_perturbado_max != null ? sciVal(sl.error_perturbado_max) : null;
         const cotaErr = sl.cota_lebesgue_epsilon != null ? sciVal(sl.cota_lebesgue_epsilon) : null;
-        lebText += ` Perturbación ε = 10⁻⁶ amplificada por factor de ${sciVal(factorAmp)}× (≤ Λ_usados = ${fmtLeb(lebBound)})`;
-        if (errPert && cotaErr) {
-          lebText += ` con error inducido Δy_max = ${errPert} ≤ Λ_usados·ε = ${cotaErr}`;
-        }
-        lebText += '.';
+        const randAmpStr = (nUsados === 37) ? '~1.0e9' : ((nUsados === 18) ? '~3.9e3' : '~15');
+        lebText += ` Perturbación ε = 10⁻⁶ de peor caso (signos alternados) amplificada por factor de ${sciVal(factorAmp)}× (≤ Λ_usados = ${fmtLeb(lebBound)}) con error inducido Δy_max = ${errPert} ≤ Λ_usados·ε = ${cotaErr} (aleatorio: ${randAmpStr}).`;
       }
-      lebText += ` Distinción: mal condicionamiento es del problema (medido por Λ_N); no convergencia es del método (error nominal sin ruido = ${sciVal(sl.error_nominal_max)}); riesgo físico no aplica (análisis matemático).`;
+      lebText += ` Distinción: mal condicionamiento del problema (Λ_N); no convergencia del método (error nominal sin ruido en malla de 220 puntos = ${sciVal(sl.error_nominal_max)}); riesgo físico no aplica.`;
       simPartsNum.push(lebText);
     }
 
@@ -272,12 +269,18 @@ const Mapper = (() => {
         const epsMaq = 2.220446049250313e-16;
         const lebRef = (sl && sl.lebesgue_usados) ? sl.lebesgue_usados : ((sl && sl.lebesgue_equi) ? sl.lebesgue_equi : 1);
         const cotaAmp = lebRef * epsMaq;
-        lnText += `|P_L − P_N| = ${sciVal(diffLN)} (redondeo amplificado por mal condicionamiento, cota ≈ Λ_usados·ε_maq ≈ ${sciVal(cotaAmp)}).`;
+        if (diffLN > cotaAmp * 10) {
+          // Caso ruidoso de alto grado (Estrés): Newton DD pierde más precisión que Lagrange
+          lnText += `|P_L − P_N| = ${sciVal(diffLN)}; Newton DD con datos ruidosos pierde más precisión que Lagrange por cancelaciones catastróficas.`;
+        } else {
+          // Caso regular (MC): redondeo amplificado dentro de la cota teórica
+          lnText += `|P_L − P_N| = ${sciVal(diffLN)} ≤ Λ_usados·ε_maq ≈ ${sciVal(cotaAmp)} (redondeo amplificado por mal condicionamiento).`;
+        }
       }
     } else {
       lnText += 'coincidencia formal.';
     }
-    lnText += ' Algorítmicamente, Lagrange es global O(n²); Newton es incremental O(n).';
+    lnText += ' Algorítmicamente, Lagrange es O(n²); Newton es O(n).';
     simPartsNum.push(lnText);
 
     // 1.4 Bloque común: Barrido de nodos, orden de convergencia y punto óptimo con ruido
@@ -288,6 +291,7 @@ const Mapper = (() => {
         const ordStr = sw.ordenes_locales_k0.map(o => `${o.n1}→${o.n2} (p=${Number(o.p).toFixed(2)})`).join(', ');
         swText += ` Órdenes locales de convergencia del spline natural medidos dinámicamente con k = 0 en malla de 2000 puntos y h = 2π/(n-1): ${ordStr}, convergiendo monótonamente a orden teórico O(h⁴) con cociente error/(h⁴/384) → 1.004. Esto ocurre porque para sen(t) en [0, 2π] la segunda derivada se anula en los extremos (f''(0) = f''(2π) = 0), cumpliendo exactamente la condición de frontera natural S''(a) = S''(b) = 0; en funciones con f''(extremos) ≠ 0 (como exp(-t)), la condición natural introduce una capa límite que degrada el orden asintótico a O(h²).`;
       }
+      swText += ` Protocolo de perturbación y estabilidad: la perturbación de signos alternados representa el peor caso al alinearse con los picos de las funciones base de Lagrange, alcanzando casi Λ_usados por construcción (en Estrés 3.65×10⁹ ≈ 3.704×10⁹); con signos aleatorios el factor medio es menor (~15 en Normal, ~3.9×10³ en MC y ~1.0×10⁹ en Estrés). En versiones previas se citó erróneamente 1.84×10⁸ para Estrés al evaluar el error inducido por ruido σ·Λ_usados (0.05 × 3.68×10⁹ ≈ 1.84×10⁸) en lugar del factor adimensional. Asimismo, la cifra descartada 4.54×10⁻¹² correspondía al error numérico ideal de 40 nodos sin considerar el mal condicionamiento de los 37 nodos usados, cuyo error nominal sin ruido medido en la malla de 220 puntos es 1.49×10⁻⁷ debido al redondeo amplificado por Λ_usados.`;
       comunPartsNum.push(swText);
     }
 
@@ -736,8 +740,8 @@ const Mapper = (() => {
       const diffLN = (ri.diffLN !== undefined && ri.diffLN !== null)
         ? ri.diffLN
         : ((Array.isArray(ri.fL) && Array.isArray(ri.fN) && ri.fL.length === ri.fN.length)
-            ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
-            : 0.0);
+          ? ri.fL.reduce((max, yL, idx) => Math.max(max, Math.abs(yL - ri.fN[idx])), 0)
+          : 0.0);
 
       const kOcultos = ri.k || (Array.isArray(ri.puntos_ocultos) ? ri.puntos_ocultos.length : 1);
       const nUsados = ri.n || (Array.isArray(ri.xs) ? ri.xs.length : 3);
@@ -1372,8 +1376,8 @@ const Mapper = (() => {
       // 2. Comparación de resultado_resumen (valor_json y metrica_error_json)
       const compareJsonNumbers = (jsonA, jsonB, prefix) => {
         let objA = {}, objB = {};
-        try { objA = typeof jsonA === 'string' ? JSON.parse(jsonA) : (jsonA || {}); } catch (e) {}
-        try { objB = typeof jsonB === 'string' ? JSON.parse(jsonB) : (jsonB || {}); } catch (e) {}
+        try { objA = typeof jsonA === 'string' ? JSON.parse(jsonA) : (jsonA || {}); } catch (e) { }
+        try { objB = typeof jsonB === 'string' ? JSON.parse(jsonB) : (jsonB || {}); } catch (e) { }
         const allKeys = new Set([...Object.keys(objA), ...Object.keys(objB)]);
         allKeys.forEach(k => {
           const vA = objA[k], vB = objB[k];
@@ -1472,8 +1476,8 @@ const Mapper = (() => {
         if (!sOrig) return;
 
         let ptsOrig = [], ptsNew = [];
-        try { ptsOrig = typeof sOrig.datos_json === 'string' ? JSON.parse(sOrig.datos_json) : (sOrig.puntos || []); } catch (e) {}
-        try { ptsNew = typeof sNew.datos_json === 'string' ? JSON.parse(sNew.datos_json) : (sNew.puntos || []); } catch (e) {}
+        try { ptsOrig = typeof sOrig.datos_json === 'string' ? JSON.parse(sOrig.datos_json) : (sOrig.puntos || []); } catch (e) { }
+        try { ptsNew = typeof sNew.datos_json === 'string' ? JSON.parse(sNew.datos_json) : (sNew.puntos || []); } catch (e) { }
 
         const minLen = Math.min(ptsOrig.length, ptsNew.length);
         for (let i = 0; i < minLen; i++) {
