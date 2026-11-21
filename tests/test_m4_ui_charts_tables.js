@@ -43,7 +43,6 @@ async function runTestM4UI() {
   const dom = {};
   const mockElements = [
     'c8', 'c9', 'c12', 'c13',
-    'fig4_1', 'fig4_2', 'fig4_3', 'fig4_4', 'fig4_5', 'fig4_6', 'fig4_7', 'fig4_8',
     'k4', 't4', 't5', 't5_dd', 't5_ocultos', 't5_raices', 't5_escenarios',
     's5', 'c9Note', 'queryModeBanner', 'queryBannerNotice', 'querySimId',
     'kpis', 'k1', 'k2', 'k3', 's1', 's2', 's3', 'concNum', 'concProb'
@@ -176,12 +175,6 @@ async function runTestM4UI() {
       `t5_escenarios debe incluir columna Amplificación de una perturbación (medida)`);
     console.log(`      ✔ Tablas t5, t5_dd, t5_ocultos, t5_raices y t5_escenarios renderizadas con datos.`);
   }
-
-  // Verificar renderizado de las 8 Figuras Académicas
-  ['fig4_1', 'fig4_2', 'fig4_3', 'fig4_4', 'fig4_5', 'fig4_6', 'fig4_7', 'fig4_8'].forEach(fId => {
-    assert(chartsDrawn[fId], `Figura académica ${fId} debe haberse dibujado en Chart.js`);
-  });
-  console.log('   ✔ Las 8 Figuras Académicas (Fig. 4.1 a 4.8) se han renderizado con éxito.');
 
   // -------------------------------------------------------------------------
   // PARTE 2: Modo Consulta (Abrir desde SQLite) en los tres escenarios

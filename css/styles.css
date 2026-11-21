@@ -207,16 +207,6 @@ nav a:hover {
   border-radius: 5px;
 }
 
-.btn.active {
-  background: var(--orange);
-  color: #111;
-  border-color: var(--orange);
-}
-
-.m4-fig-item {
-  transition: all 0.2s ease;
-}
-
 /* KPI */
 .kpis {
   position: relative;
