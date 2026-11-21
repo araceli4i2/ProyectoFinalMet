@@ -553,30 +553,54 @@ El sistema incorpora un motor de certificación de reproducibilidad matemática:
 
 ## 🚀 Despliegue e Instalación Rápida
 
-La aplicación es completamente autónoma (cero dependencias de backend, base de datos o gestores de paquetes).
+La aplicación es completamente autónoma (cero dependencias externas de backend ni bases de datos instaladas en el sistema operativo). Funciona directamente en el navegador con **SQLite WebAssembly** (`sql.js`).
 
-### Opción 1: Ejecución Directa en Navegador
-Descarga o clona el repositorio y abre directamente el archivo `index.html`:
+> [!IMPORTANT]
+> **Requisito de Servidor HTTP Local**:
+> Por directivas de seguridad CORS de los navegadores modernos, la carga de binarios WebAssembly (`vendor/sqljs/sql-wasm.wasm`) se bloquea si se abre el archivo con doble clic mediante el protocolo `file:///`. Por ello, la aplicación **debe ejecutarse a través de un servidor HTTP local** (`http://localhost:...`).
+
+### Opción 1: Servidor Integrado Node.js (Recomendado, cero dependencias)
+
+El repositorio incluye un servidor local ligero en `tools/server.js` sin dependencias externas:
+
 ```bash
-git clone https://github.com/araceli4i2/ProyectoFinalMet.git
-cd ProyectoFinalMet
-# Abrir directamente index.html en Chrome, Edge, Firefox o Safari
+# Arranca por defecto en el puerto 8080:
+node tools/server.js
+# Acceder a: http://localhost:8080/index.html
 ```
 
-### Opción 2: Servidor Local Ligero (Recomendado)
-Para evitar restricciones de seguridad CORS al cargar archivos locales:
-
-* **Con Python**:
+* **Detección inteligente de puertos**: Si el puerto `8080` (o `8000`) está ocupado, el script busca y asigna automáticamente el siguiente puerto libre (`8081`, `8082`, etc.).
+* **Puerto personalizado**: Puedes especificar cualquier puerto disponible como argumento:
   ```bash
-  python -m http.server 8000
-  # Acceder a: http://localhost:8000
+  node tools/server.js 3000
+  # Acceder a: http://localhost:3000/index.html
   ```
 
-* **Con Node.js**:
-  ```bash
-  npx serve .
-  # O mediante la extensión Live Server de VS Code
-  ```
+### Opción 2: Con Python
+
+Si tienes Python instalado:
+
+```bash
+# En el puerto 8080 (o 8000 si está libre):
+python -m http.server 8080
+# Acceder a: http://localhost:8080/index.html
+```
+
+### Opción 3: Con `npx` (serve o http-server)
+
+```bash
+npx serve . -l 8080
+# O con http-server:
+npx http-server -p 8080
+# Acceder a: http://localhost:8080/index.html
+```
+
+### Opción 4: Con VS Code (Extensión *Live Server*)
+
+1. Abre la carpeta del proyecto en VS Code.
+2. Haz clic derecho sobre `index.html` en el explorador.
+3. Selecciona **"Open with Live Server"**.
+4. Se abrirá automáticamente en `http://127.0.0.1:5500/index.html`.
 
 ### Ejecución de Pruebas Automatizadas
 
