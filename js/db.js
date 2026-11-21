@@ -1339,6 +1339,10 @@ PRAGMA user_version = 3;
             `;
           }
         }
+
+        if (typeof window !== 'undefined' && typeof window.renderM4AcademicFigures === 'function') {
+          window.renderM4AcademicFigures(valS);
+        }
       }
 
       if (noticeEl) {

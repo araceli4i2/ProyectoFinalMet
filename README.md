@@ -141,6 +141,16 @@ Tratamiento y regularización de mediciones procedentes de sensores de tensión 
   * **Convergencia del Spline Natural (k = 0)**:
     * En malla densa de 2000 puntos en $[0, 2\pi]$ con $h = 2\pi/(n-1)$, el spline natural converge monótonamente a orden $\mathcal{O}(h^4)$ con órdenes locales medidos: $4.89$ ($4\to 6$), $4.45$ ($6\to 8$), $4.22$ ($8\to 12$), $4.10$ ($12\to 16$), $4.05$ ($16\to 24$), $4.03$ ($24\to 32$) y $4.01$ ($32\to 48$). El cociente error/$(h^4/384)$ converge a $1.004$ debido a que $f''(0) = f''(2\pi) = 0$ cumple con precisión la condición de frontera natural.
     * Con ruido sensorial $\sigma = 0.05$, el rango óptimo de discretización polinomial se ubica en el mínimo entre $n = 8$ y $n = 10$.
+  * **Galería Interactiva de Figuras Académicas (Capítulo 4)**:
+    La interfaz web incorpora un panel de visualización interactiva con pestañas para desplegar las 8 figuras del informe de investigación:
+    1. **Fig. 4.1 (`M4_fig4_1_normal_curvas`)**: Curvas superpuestas en escenario Normal ($n=12, k=3, \sigma=0$) con error de aproximación.
+    2. **Fig. 4.2 (`M4_fig4_2_estres_curvas`)**: Escenario Estrés ($n=40, k=3, \sigma=0.05$) con control de eje acotado $[-2.5, 2.5]$ y oscilación de bordes.
+    3. **Fig. 4.3 (`M4_fig4_3_error_ocultos_log`)**: Error en puntos ocultos comparando simultáneamente los 3 escenarios en escala logarítmica.
+    4. **Fig. 4.4 (`M4_fig4_4_barrido_nodos`)**: Evolución del error vs $n$ ($4..24$), equiespaciados vs Chebyshev, con $n < 8$ marcado como no válido.
+    5. **Fig. 4.5 (`M4_fig4_5_lebesgue`)**: Crecimiento exponencial de $\Lambda_n^{\text{equi}}$ vs estabilidad de Chebyshev y cota uniforme del spline ($\Lambda \le 2.5$).
+    6. **Fig. 4.6 (`M4_fig4_6_orden_spline`)**: Estudio de convergencia Log-Log del Spline Natural vs $h$: pendiente 4 para $\sin(t)$ y pendiente 2 para $e^{-t}$.
+    7. **Fig. 4.7 (`M4_fig4_7_cruce_umbral`)**: Detección de raíces de $S(t) = 0.5$ en el entorno de cruce $t \approx \pi/6$ en los tres escenarios.
+    8. **Fig. 4.8 (`M4_fig4_8_amplificacion`)**: Sensibilidad ante perturbación $\varepsilon = 10^{-5}$: cota teórica $\Lambda \cdot \varepsilon$ vs peor caso y caso aleatorio.
 
 ---
 
