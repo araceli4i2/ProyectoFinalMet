@@ -68,6 +68,7 @@ Modela el índice de degradación acumulada $D(t) \in [0, 1]$ en cables y poleas
 - **Cálculo del Cruce de Umbral Crítico ($D(t^*) = D_u$)**:
   * **Bisección**: Convergencia lineal garantizada y acotada.
   * **Newton-Raphson**: Convergencia cuadrática $\mathcal{O}(\epsilon^2)$ con condición de parada por residuo y tolerancia absoluta.
+  * **Secante**: búsqueda sin derivada, con historial de iteraciones, residuo y error frente a Vieta.
   * **Fórmula Cuadrática Estable**: Se demuestra y neutraliza el error por **cancelación catastrófica** de la fórmula ingenua cuando $\beta \to 0$ mediante la transformación racional de Vieta:
     $$t^* = \frac{2(D_u - D_0)}{\alpha + \sqrt{\alpha^2 + 4\beta(D_u - D_0)}}$$
 - **Análisis de Sensibilidad**: Cálculo de $\frac{dt^*}{dD_u}$ y número de condición relativo $\kappa_{\text{rel}}$.
