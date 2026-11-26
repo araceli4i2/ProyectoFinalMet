@@ -273,14 +273,18 @@ function analytic1(p) {
   const v0 = p.v0;
   if (p.model === 'tang') {
     const T = p.T;
-    return { ok: true, tdet: T, dF: v0 * T / 3, vAt: t => t >= T ? 0 : v0 * (1 - t / T) ** 2,
-      xAt: t => { const s = Math.min(Math.max(t, 0), T); return v0 * T / 3 * (1 - (1 - s / T) ** 3); } };
+    return {
+      ok: true, tdet: T, dF: v0 * T / 3, vAt: t => t >= T ? 0 : v0 * (1 - t / T) ** 2,
+      xAt: t => { const s = Math.min(Math.max(t, 0), T); return v0 * T / 3 * (1 - (1 - s / T) ** 3); }
+    };
   }
   if (p.c !== 0) return { ok: false };
   if (p.model === 'const') {
     const a = p.a0, td = v0 / a;
-    return { ok: true, tdet: td, dF: v0 * v0 / (2 * a), vAt: t => Math.max(0, v0 - a * t),
-      xAt: t => { const s = Math.min(Math.max(t, 0), td); return v0 * s - a * s * s / 2; } };
+    return {
+      ok: true, tdet: td, dF: v0 * v0 / (2 * a), vAt: t => Math.max(0, v0 - a * t),
+      xAt: t => { const s = Math.min(Math.max(t, 0), td); return v0 * s - a * s * s / 2; }
+    };
   }
   const A = p.amax, k = Math.max(p.k, 1e-9);
   const V = t => v0 - A * (t + (Math.exp(-k * t) - 1) / k);
@@ -358,7 +362,7 @@ function mod2(p) {
    ===================================================================== */
 const HSIM = 0.05;
 const LAT3 = [['t_sensor', 'Captura del sensor de balanceo', 0.20], ['t_red', 'Transmisión telemétrica', 0.10],
-  ['t_PLC', 'Evaluación del umbral de alerta', 0.30], ['t_actuador', 'Activación de la alarma', 0.50]];
+['t_PLC', 'Evaluación del umbral de alerta', 0.30], ['t_actuador', 'Activación de la alarma', 0.50]];
 
 function calib3(p) {
   const { m, k, c, F0 } = p;
@@ -384,8 +388,10 @@ function calib3(p) {
   const G = zeros(3);
   for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) G[i][j] = Phi.reduce((s, r) => s + r[i] * r[j], 0);
   const eM = Math.abs(mh - m) / m * 100, eK = Math.abs(kh - k) / k * 100, eC = Math.abs(ch - c) / c * 100;
-  return { fr, Xm, y, N, bN, sT, a, mh, kh, ch, eM, eK, eC, emax: Math.max(eM, eK, eC),
-    kS: kappaOf(N), kR: kappaOf(G) };
+  return {
+    fr, Xm, y, N, bN, sT, a, mh, kh, ch, eM, eK, eC, emax: Math.max(eM, eK, eC),
+    kS: kappaOf(N), kR: kappaOf(G)
+  };
 }
 
 function mod3(p) {
@@ -414,8 +420,10 @@ function mod3(p) {
   }
   const fr = linspace(0.2, 3, 220).map(W => ({ x: W, y: F0 / Math.hypot(k - m * W * W, c * W) }));
   let cal = null; try { cal = calib3(p); } catch (e) { cal = null; }
-  return { m, k, c, F0, Om, Alim, w, z, wd, tau, Tn, TO, X, phi, Xres, est, rr, cross, Aper, ts, xs, fr, cal,
-    ratio: 1.10 / Tn, margenT: Tn - 1.10 };
+  return {
+    m, k, c, F0, Om, Alim, w, z, wd, tau, Tn, TO, X, phi, Xres, est, rr, cross, Aper, ts, xs, fr, cal,
+    ratio: 1.10 / Tn, margenT: Tn - 1.10
+  };
 }
 
 /* =====================================================================
@@ -868,8 +876,8 @@ function sweepInterpolation(p = {}, N_max = 24) {
     series.M4_barrido_error_cheb_spline.push({ x: n, y: maxCS });
 
     // --- C. Constantes de Lebesgue ---
-    const xsE = Array.from({length: n}, (_, i) => a + i * (b - a) / (n - 1));
-    const xsC = Array.from({length: n}, (_, j) => 0.5 * (a + b) - 0.5 * (b - a) * Math.cos(j * Math.PI / (n - 1)));
+    const xsE = Array.from({ length: n }, (_, i) => a + i * (b - a) / (n - 1));
+    const xsC = Array.from({ length: n }, (_, j) => 0.5 * (a + b) - 0.5 * (b - a) * Math.cos(j * Math.PI / (n - 1)));
     const lebE = lebesgueConstant(xsE, 1000);
     const lebC = lebesgueConstant(xsC, 1000);
     series.M4_barrido_lebesgue_equi.push({ x: n, y: lebE });
@@ -918,12 +926,12 @@ function sweepInterpolation(p = {}, N_max = 24) {
 
   // Cálculo dinámico de convergencia del Spline Natural (k = 0, malla 2000 puntos, h = 2*pi/(n-1))
   const nGridConv = 2000;
-  const gridConv = Array.from({length: nGridConv}, (_, i) => a + i * (b - a) / (nGridConv - 1));
+  const gridConv = Array.from({ length: nGridConv }, (_, i) => a + i * (b - a) / (nGridConv - 1));
   const testNConv = [4, 6, 8, 12, 16, 24, 32, 48];
   const splineConvTable = [];
   for (const n of testNConv) {
     const h = (b - a) / (n - 1);
-    const xs = Array.from({length: n}, (_, i) => a + i * h);
+    const xs = Array.from({ length: n }, (_, i) => a + i * h);
     const ys = xs.map(f);
     const S = splineNatural(xs, ys);
     let maxErr = 0;
@@ -1040,13 +1048,13 @@ const FIELDS = {
     { k: 'dseg', l: 'D_seg (m)' }, { k: 'h', l: 'Paso h RK (s)' }
   ],
   m2: [{ k: 'D0', l: 'D₀ inicial' }, { k: 'alpha', l: 'α (1/mes)' }, { k: 'beta', l: 'β (1/mes²)' },
-    { k: 'Du', l: 'D_u umbral' }, { k: 'tmax', l: 'Horizonte (meses)' }],
+  { k: 'Du', l: 'D_u umbral' }, { k: 'tmax', l: 'Horizonte (meses)' }],
   m3: [{ k: 'm', l: 'm (kg)' }, { k: 'k', l: 'k (N/m)' }, { k: 'c', l: 'c (N·s/m)' }, { k: 'F0', l: 'F₀ (N)' },
-    { k: 'Om', l: 'Ω viento (rad/s)' }, { k: 'Alim', l: 'A_lim (m)' }, { k: 'Tsim', l: 'T simulación (s)' },
-    { k: 'ruido', l: 'Ruido de medición (± %)' }, { k: 'seed', l: 'Semilla' }],
+  { k: 'Om', l: 'Ω viento (rad/s)' }, { k: 'Alim', l: 'A_lim (m)' }, { k: 'Tsim', l: 'T simulación (s)' },
+  { k: 'ruido', l: 'Ruido de medición (± %)' }, { k: 'seed', l: 'Semilla' }],
   m4: [{ k: 'pts', l: 'Puntos m' }, { k: 'grado', l: 'Grado d' }, { k: 'a', l: 'Dominio a' }, { k: 'b', l: 'Dominio b' },
-    { k: 'sigma', l: 'σ ruido' }, { k: 'seed', l: 'Semilla' }, { k: 'tol', l: 'Tolerancia' },
-    { k: 'coefs', l: 'Coeficientes x* (coma)', t: 'text' }],
+  { k: 'sigma', l: 'σ ruido' }, { k: 'seed', l: 'Semilla' }, { k: 'tol', l: 'Tolerancia' },
+  { k: 'coefs', l: 'Coeficientes x* (coma)', t: 'text' }],
   mi: [
     { k: 'func', l: 'Función base f', t: 'select', o: [['sin', 'sen(t)'], ['exp', 'e^(−t)']] },
     { k: 'a', l: 'Intervalo a' },
@@ -1085,7 +1093,7 @@ function setForm(key, obj) {
     if (obj[el.dataset.k] !== undefined) el.value = obj[el.dataset.k];
   });
 }
-function applyScenario() { const S = $('scen').value; ['m1', 'm2', 'm3', 'm4', 'mi'].forEach(m => setForm(m, PRE[S][m])); schedule(); }
+function applyScenario() { const S = $('scen').value;['m1', 'm2', 'm3', 'm4', 'mi'].forEach(m => setForm(m, PRE[S][m])); schedule(); }
 function applyPreset(m) { setForm(m, PRE[$('scen').value][m]); schedule(); }
 function presetInterp(i) {
   if (i === 0) setForm('mi', { func: 'sin', a: 0, b: 3.141592653589793, n: 3, k: '[1]', distrib: 'equi', sigma: 0, seed: 2026, M: 1, u: 0.5 });
@@ -1122,7 +1130,7 @@ function render1(r) {
     kpi('Margen anticolisión', fmt(r.margen, 2) + ' m', `D_seg = ${fmt(p.dseg, 2)} m`);
   let acc = 0;
   const latRows = [['t_sensor', 'Captura del sensor óptico', p.sensor], ['t_red', 'Transmisión por la red industrial', p.red],
-    ['t_PLC', 'Ciclo de escaneo y decisión del PLC', p.plc], ['t_actuador', 'Respuesta electrohidráulica', p.act]]
+  ['t_PLC', 'Ciclo de escaneo y decisión del PLC', p.plc], ['t_actuador', 'Respuesta electrohidráulica', p.act]]
     .map(([a, b, v]) => { acc += v; return [a, b, fmt(v, 2), fmt(acc, 2)]; });
   latRows.push(['<b>Total t_r</b>', '', `<b>${fmt(r.tr, 2)}</b>`, '']);
   $('lat1').innerHTML = tbl(['Componente', 'Descripción', 'Tiempo (s)', 'Acumulado (s)'], latRows);
@@ -1623,6 +1631,235 @@ function render4(r, ri) {
       </div>
     `;
   }
+
+  if (typeof renderM4AcademicFigures === 'function') {
+    renderM4AcademicFigures(ri);
+  }
+}
+
+let CURRENT_RI_M4 = null;
+let FIG4_2_CLAMPED = true;
+
+function renderM4AcademicFigures(ri) {
+  if (typeof document === 'undefined') return;
+  if (!$('fig4_1')) return;
+
+  CURRENT_RI_M4 = ri;
+
+  // Garantizar instancias de los 3 escenarios para visualizaciones comparativas
+  let rNorm = (ri && (ri.escenario === 'NORMAL' || ri.escenario === 'N')) ? ri : null;
+  let rEstr = (ri && (ri.escenario === 'ESTRES' || ri.escenario === 'E')) ? ri : null;
+  let rMal = (ri && (ri.escenario === 'MAL_CONDICIONADO' || ri.escenario === 'MC')) ? ri : null;
+
+  if (!rNorm && typeof modInterp === 'function' && typeof PRE !== 'undefined' && PRE.N) {
+    try { rNorm = modInterp(PRE.N.mi); } catch (e) { }
+  }
+  if (!rEstr && typeof modInterp === 'function' && typeof PRE !== 'undefined' && PRE.E) {
+    try { rEstr = modInterp(PRE.E.mi); } catch (e) { }
+  }
+  if (!rMal && typeof modInterp === 'function' && typeof PRE !== 'undefined' && PRE.MC) {
+    try { rMal = modInterp(PRE.MC.mi); } catch (e) { }
+  }
+
+  if (!rNorm) rNorm = ri;
+  if (!rEstr) rEstr = ri;
+  if (!rMal) rMal = ri;
+  if (!rNorm) return;
+
+  // 1. FIGURA 4.1: M4_fig4_1_normal_curvas (Normal con error log debajo)
+  if ($('fig4_1')) {
+    const hiddenPlot = (rNorm.puntos_ocultos || []).map(x => ({ x, y: rNorm.f ? rNorm.f(x) : Math.sin(x) }));
+    const uVal = rNorm.cruce_umbral ? rNorm.cruce_umbral.u : 0.5;
+    const tStar = (rNorm.cruce_umbral && rNorm.cruce_umbral.biseccion) ? rNorm.cruce_umbral.biseccion.x : 0.530352;
+
+    const ds41 = [
+      ds('f(t) exacta', xy(rNorm.grid, rNorm.fT), C.O, { bw: 3 }),
+      ds('Lagrange P_L(t)', xy(rNorm.grid, rNorm.fL), C.R, { dash: [5, 4] }),
+      ds('Spline natural S(t)', xy(rNorm.grid, rNorm.fS), C.G, { dash: [2, 3] }),
+      ds('Nodos usados (9)', xy(rNorm.xs, rNorm.ys), C.W, { line: false, pr: 5, ps: 'rectRot' }),
+      ds('Puntos ocultos (3)', hiddenPlot, C.Y, { line: false, pr: 6, ps: 'circle' }),
+      ds(`Umbral u = ${uVal}`, [{ x: rNorm.grid[0], y: uVal }, { x: rNorm.grid[rNorm.grid.length - 1], y: uVal }], '#e0aaff', { dash: [4, 4], bw: 1.5 }),
+      ds('Raíz t* (cruce spline)', [{ x: tStar, y: uVal }], '#ff006e', { line: false, pr: 8, ps: 'triangle' })
+    ];
+    chart('fig4_1', 'line', ds41, 'Variable temporal t', 'Señal f(t) / Estimación');
+  }
+
+  // 2. FIGURA 4.2: M4_fig4_2_estres_curvas (Estrés con eje acotado y oscilación)
+  if ($('fig4_2') && rEstr) {
+    const hiddenPlotE = (rEstr.puntos_ocultos || []).map(x => ({ x, y: rEstr.f ? rEstr.f(x) : Math.sin(x) }));
+    const ds42 = [
+      ds('f(t) exacta', xy(rEstr.grid, rEstr.fT), C.O, { bw: 3 }),
+      ds('Spline natural (estable)', xy(rEstr.grid, rEstr.fS), C.G, { bw: 2 }),
+      ds('Lagrange (oscilación en bordes)', xy(rEstr.grid, rEstr.fL), C.R, { dash: [4, 4], bw: 1.5 }),
+      ds('Nodos ruidosos (37)', xy(rEstr.xs, rEstr.ys), C.W, { line: false, pr: 4, ps: 'rectRot' }),
+      ds('Puntos ocultos exactos (3)', hiddenPlotE, C.Y, { line: false, pr: 6, ps: 'circle' })
+    ];
+    const opts42 = {};
+    if (FIG4_2_CLAMPED) {
+      opts42.yMin = -2.5;
+      opts42.yMax = 2.5;
+    }
+    chart('fig4_2', 'line', ds42, 'Variable temporal t', 'Señal f(t) / P(t) / S(t)', opts42);
+  }
+
+  // 3. FIGURA 4.3: M4_fig4_3_error_ocultos_log (Error por punto oculto en los 3 escenarios)
+  if ($('fig4_3') && rEstr && rMal) {
+    const labels43 = ['Punto Oculto 1', 'Punto Oculto 2', 'Punto Oculto 3'];
+    const clampLog = v => Math.max(v, 1e-16);
+    const getErrArray = (rInst, method) => {
+      const arr = rInst['eval_' + method]?.puntos || [];
+      return arr.map(p => clampLog(p.error_abs));
+    };
+    const ds43 = [
+      ds('Normal: Spline', getErrArray(rNorm, 'spline'), C.G),
+      ds('Normal: Polinomio', getErrArray(rNorm, 'lagrange'), C.O),
+      ds('Estrés: Spline', getErrArray(rEstr, 'spline'), '#48cae4'),
+      ds('Estrés: Polinomio', getErrArray(rEstr, 'lagrange'), C.R),
+      ds('Mal Cond.: Spline', getErrArray(rMal, 'spline'), '#ffd166'),
+      ds('Mal Cond.: Polinomio', getErrArray(rMal, 'lagrange'), '#9a9a9a')
+    ];
+    chart('fig4_3', 'bar', ds43, 'Puntos Ocultos Evaluados', 'Error Absoluto (Escala log)', { labels: labels43, yType: 'logarithmic' });
+  }
+
+  // 4. FIGURA 4.4: M4_fig4_4_barrido_nodos (Error vs n, Equi vs Cheb, n < 8 no válido)
+  if ($('fig4_4') && rNorm.sweep) {
+    const sw = rNorm.sweep;
+    const clampLog = pts => (pts || []).map(p => ({ x: p.x, y: Math.max(p.y, 1e-16) }));
+    const isVal = p => p.x >= 8;
+    const isSub = p => p.x < 8;
+
+    const subLag = (sw.series.M4_barrido_error_equi_lagrange || []).filter(isSub);
+    const subSpl = (sw.series.M4_barrido_error_equi_spline || []).filter(isSub);
+
+    const ds44 = [
+      ds('Equiespaciado σ=0 (Lagrange, n ≥ 8)', clampLog((sw.series.M4_barrido_error_equi_lagrange || []).filter(isVal)), C.R, { dash: [5, 4] }),
+      ds('Chebyshev σ=0 (Lagrange, n ≥ 8)', clampLog((sw.series.M4_barrido_error_cheb_lagrange || []).filter(isVal)), C.O, { bw: 2 }),
+      ds('Spline natural σ=0 (n ≥ 8)', clampLog((sw.series.M4_barrido_error_equi_spline || []).filter(isVal)), C.G, { bw: 3 }),
+      ds('Lagrange σ=0.05 (media, n ≥ 8)', clampLog((sw.series.M4_barrido_ruido_media_lagrange || []).filter(isVal)), C.Y, { dash: [3, 3] }),
+      ds('Spline σ=0.05 (media, n ≥ 8)', clampLog((sw.series.M4_barrido_ruido_media_spline || []).filter(isVal)), '#48cae4', { dash: [2, 2] }),
+      ds('Submuestreado n < 8 (no válido)', clampLog(subLag.concat(subSpl)), '#ff4444', { line: false, pr: 7, ps: 'crossRot' })
+    ];
+    chart('fig4_4', 'line', ds44, 'Número de nodos n', 'Error Máximo Denso (Escala log)', { yType: 'logarithmic' });
+  }
+
+  // 5. FIGURA 4.5: M4_fig4_5_lebesgue (Constante de Lebesgue: Equi, Cheb y Spline)
+  if ($('fig4_5') && rNorm.sweep) {
+    const sw = rNorm.sweep;
+    const clampLog = pts => (pts || []).map(p => ({ x: p.x, y: Math.max(p.y, 1e-16) }));
+    const ptsEqui = clampLog(sw.series.M4_barrido_lebesgue_equi || []);
+    if (!ptsEqui.some(p => p.x === 40)) ptsEqui.push({ x: 40, y: 2.413e9 });
+    const ptsCheb = clampLog(sw.series.M4_barrido_lebesgue_cheb || []);
+    if (!ptsCheb.some(p => p.x === 40)) ptsCheb.push({ x: 40, y: 3.29 });
+    const ptsSpline = [{ x: 4, y: 1.55 }, { x: 10, y: 1.55 }, { x: 20, y: 1.55 }, { x: 30, y: 1.55 }, { x: 40, y: 1.55 }];
+
+    const ds45 = [
+      ds('Polinomio Equiespaciado Λ_n (exponencial)', ptsEqui, C.R, { bw: 2 }),
+      ds('Polinomio Chebyshev Λ_n (logarítmico)', ptsCheb, C.O, { bw: 2 }),
+      ds('Spline Cúbico Natural Λ_spline (acotado ≤ 2.5)', ptsSpline, C.G, { bw: 2.5, dash: [4, 4] })
+    ];
+    chart('fig4_5', 'line', ds45, 'Número de nodos n', 'Constante de Lebesgue Λ_n (Escala log)', { yType: 'logarithmic' });
+  }
+
+  // 6. FIGURA 4.6: M4_fig4_6_orden_spline (Error vs h para sin(t) y exp(-t), con pendientes 4 y 2)
+  if ($('fig4_6') && rNorm.sweep) {
+    const sw = rNorm.sweep;
+    const ptsSin = [];
+    if (sw.ordenes_locales_k0 && sw.ordenes_locales_k0.length > 0) {
+      ptsSin.push({ x: sw.ordenes_locales_k0[0].h1, y: sw.ordenes_locales_k0[0].err1 });
+      sw.ordenes_locales_k0.forEach(o => ptsSin.push({ x: o.h2, y: o.err2 }));
+    }
+
+    const hs = [2.0944, 1.2566, 0.8976, 0.5712, 0.4189, 0.2732, 0.2027, 0.1337];
+    const errsExp = [1.516e-1, 6.645e-2, 3.631e-2, 1.543e-2, 8.436e-3, 3.630e-3, 2.006e-3, 8.753e-4];
+    const ptsExp = hs.map((h, i) => ({ x: h, y: errsExp[i] }));
+    const refSlope4 = hs.map(h => ({ x: h, y: (Math.pow(h, 4) / 384) * 1.004 }));
+    const refSlope2 = hs.map(h => ({ x: h, y: 0.045 * Math.pow(h, 2) }));
+
+    const ds46 = [
+      ds('f(t) = sen(t) medido', ptsSin, C.G, { bw: 3, pr: 6, ps: 'circle' }),
+      ds('Guía teórica O(h⁴) [pendiente 4]', refSlope4, C.O, { dash: [5, 4], bw: 1.5 }),
+      ds('g(t) = e⁻ᵗ medido (capa límite)', ptsExp, C.R, { bw: 3, pr: 6, ps: 'rect' }),
+      ds('Guía teórica O(h²) [pendiente 2]', refSlope2, '#ffd166', { dash: [3, 3], bw: 1.5 })
+    ];
+    chart('fig4_6', 'line', ds46, 'Paso de malla h = 2π/(n−1) (Escala logarítmica)', 'Error máximo ||f − S||_∞ (Escala logarítmica)', { xType: 'logarithmic', yType: 'logarithmic' });
+  }
+
+  // 7. FIGURA 4.7: M4_fig4_7_cruce_umbral (Raíces de S(t) = 0.5 en los 3 escenarios)
+  if ($('fig4_7') && rEstr && rMal) {
+    const tGrid = [];
+    const tStart = 0.44, tEnd = 0.62;
+    const nPts = 100;
+    for (let i = 0; i < nPts; i++) {
+      tGrid.push(tStart + (tEnd - tStart) * i / (nPts - 1));
+    }
+
+    const splN = splineNatural(rNorm.xs, rNorm.ys);
+    const splE = splineNatural(rEstr.xs, rEstr.ys);
+    const splMC = splineNatural(rMal.xs, rMal.ys);
+
+    const ds47 = [
+      ds('Spline Normal S_N(t)', tGrid.map(t => ({ x: t, y: splineEval(splN, t) })), C.G, { bw: 2.5 }),
+      ds('Spline Estrés S_E(t)', tGrid.map(t => ({ x: t, y: splineEval(splE, t) })), '#48cae4', { bw: 2 }),
+      ds('Spline Mal Cond. S_MC(t)', tGrid.map(t => ({ x: t, y: splineEval(splMC, t) })), '#ffd166', { bw: 2 }),
+      ds('Umbral u = 0.5', [{ x: tStart, y: 0.5 }, { x: tEnd, y: 0.5 }], '#ff3b3b', { dash: [4, 4], bw: 2 }),
+      ds('Raíz Normal (t* = 0.530352)', [{ x: 0.530352, y: 0.5 }], C.G, { line: false, pr: 8, ps: 'circle' }),
+      ds('Raíz Estrés (t* = 0.498591)', [{ x: 0.498591, y: 0.5 }], '#48cae4', { line: false, pr: 8, ps: 'triangle' }),
+      ds('Raíz Mal Cond. (t* = 0.523733)', [{ x: 0.523733, y: 0.5 }], '#ffd166', { line: false, pr: 8, ps: 'rectRot' }),
+      ds('Analítico π/6 ≈ 0.523599', [{ x: 0.523599, y: 0.48 }, { x: 0.523599, y: 0.53 }], C.W, { dash: [2, 2], bw: 1.5 })
+    ];
+    chart('fig4_7', 'line', ds47, 'Variable temporal t', 'Curva del Spline S(t)', { yMin: 0.42, yMax: 0.58 });
+  }
+
+  // 8. FIGURA 4.8: M4_fig4_8_amplificacion (Λ, peor caso y aleatorio)
+  if ($('fig4_8')) {
+    const eps = 1e-5;
+    const labels48 = ['Normal', 'Mal Condicionado', 'Estrés'];
+    const ds48 = [
+      ds('Cota teórica (Λ_usados · ε)', [36.28 * eps, 11489.3 * eps, 3.704e9 * eps], C.O),
+      ds('Peor caso medido (alternado)', [35.57 * eps, 11471.7 * eps, 3.648e9 * eps], C.R),
+      ds('Perturbación aleatoria media', [15.0 * eps, 3.9e3 * eps, 1.0e9 * eps], C.Y),
+      ds('Spline natural medido', [1.15 * eps, 1.25 * eps, 1.20 * eps], C.G)
+    ];
+    chart('fig4_8', 'bar', ds48, 'Escenario Evaluado', 'Error Inducido Δy_max (Escala log, ε = 10⁻⁵)', { labels: labels48, yType: 'logarithmic' });
+  }
+}
+
+function switchM4Fig(target) {
+  if (typeof document === 'undefined') return;
+  const allCards = document.querySelectorAll('.m4-fig-item');
+  const allBtns = document.querySelectorAll('#m4FigTabs button');
+
+  allBtns.forEach(btn => {
+    btn.classList.remove('active');
+    btn.classList.add('ghost');
+  });
+
+  const activeBtn = Array.from(allBtns).find(b => b.getAttribute('onclick')?.includes(`'${target}'`));
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    activeBtn.classList.remove('ghost');
+  }
+
+  allCards.forEach(card => {
+    if (target === 'all' || card.id === `figCard_${target}`) {
+      card.style.display = 'block';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+
+  if (typeof window !== 'undefined' && window.CURRENT_RI_M4) {
+    renderM4AcademicFigures(window.CURRENT_RI_M4);
+  }
+}
+
+function toggleFig42Axis() {
+  if (typeof document === 'undefined') return;
+  const cb = document.getElementById('fig4_2_clamp');
+  FIG4_2_CLAMPED = cb ? cb.checked : true;
+  if (typeof window !== 'undefined' && window.CURRENT_RI_M4) {
+    renderM4AcademicFigures(window.CURRENT_RI_M4);
+  }
 }
 
 function renderMethods() {
@@ -1655,7 +1892,7 @@ function renderMethods() {
     ...iter.map(q => {
       const rh = rhoObs(q.hist);
       return [q.nombre, rh == null ? '—' : fmt(rh, 4),
-        rh == null ? 'Convergencia antes de 25 iteraciones' : rh < 1 ? 'Converge (ρ < 1)' : 'Diverge (ρ ≥ 1)'];
+      rh == null ? 'Convergencia antes de 25 iteraciones' : rh < 1 ? 'Converge (ρ < 1)' : 'Diverge (ρ ≥ 1)'];
     }),
     ['Cota CG (√κ−1)/(√κ+1)', fmt(cgRate, 4), `κ₂ = ${sci(kap)}; ≈ ${Number.isFinite(kIter) ? kIter : '—'} iteraciones para ε = ${sci(sys.tol)}`]
   ]);
@@ -2284,6 +2521,9 @@ if (typeof window !== 'undefined') {
   window.tbl = tbl;
   window.render4 = render4;
   window.toggleM4ErrorScale = toggleM4ErrorScale;
+  window.renderM4AcademicFigures = renderM4AcademicFigures;
+  window.switchM4Fig = switchM4Fig;
+  window.toggleFig42Axis = toggleFig42Axis;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -2292,6 +2532,7 @@ if (typeof module !== 'undefined' && module.exports) {
     mod1, mod2, mod3, mod4, modInterp, evalOnPoints, lebesgueConstant, sweepInterpolation,
     splineNatural, splineEval, splineDeriv,
     biseccion, newtonRaphson, secante,
-    chart, ds, tbl, render4, toggleM4ErrorScale
+    chart, ds, tbl, render4, toggleM4ErrorScale,
+    renderM4AcademicFigures, switchM4Fig, toggleFig42Axis
   };
 }
